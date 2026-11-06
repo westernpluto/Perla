@@ -202,26 +202,30 @@ enum KeySentences {
 final class ImportedAnswers {
     static let shared = ImportedAnswers()
 
-    private var items: [String: String] = [:]
+    /// One entry per imported file (question key → answer), so a file only fills the page it's for.
+    private var batches: [[String: String]] = []
     private let fileURL: URL
 
     private init() {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("imported-answers.json")
-        if let data = try? Data(contentsOf: fileURL),
-           let saved = try? JSONDecoder().decode([String: String].self, from: data) {
-            items = saved
+        if let data = try? Data(contentsOf: fileURL) {
+            if let saved = try? JSONDecoder().decode([[String: String]].self, from: data) {
+                batches = saved
+            } else if let old = try? JSONDecoder().decode([String: String].self, from: data), !old.isEmpty {
+                batches = [old]
+            }
         }
     }
 
     /// Posted after answers are imported or removed, so open pages can refresh.
     static let changed = Notification.Name("PerlaImportedAnswersChanged")
 
-    var count: Int { items.count }
+    var count: Int { batches.reduce(0) { $0 + $1.count } }
 
     func clear() {
-        items = [:]
+        batches = []
         save()
         NotificationCenter.default.post(name: Self.changed, object: nil)
     }
@@ -244,6 +248,7 @@ final class ImportedAnswers {
             list = json as? [[String: Any]] ?? []
         }
         var added = 0
+        var items: [String: String] = [:]
         for item in list {
             let q = (item["question"] ?? item["q"] ?? item["pregunta"]) as? String ?? ""
             let a = (item["answer"] ?? item["a"] ?? item["respuesta"]) as? String ?? ""
@@ -251,6 +256,11 @@ final class ImportedAnswers {
             guard key.count >= 4, !a.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             items[key] = a.trimmingCharacters(in: .whitespacesAndNewlines)
             added += 1
+        }
+        if !items.isEmpty {
+            // Importing the same file again replaces it instead of adding a copy.
+            batches.removeAll { Set($0.keys).isSubset(of: Set(items.keys)) }
+            batches.append(items)
         }
         save()
         if added > 0 { NotificationCenter.default.post(name: Self.changed, object: nil) }
@@ -270,8 +280,27 @@ final class ImportedAnswers {
         return String(text[start...end])
     }
 
-    func answer(for question: String) -> String? {
-        let key = Self.normalize(question)
+    /// Imported answers for a page's questions (question text → answer).
+    ///
+    /// Workbook questions such as "What spiritual gems … would you like to share?" repeat every week,
+    /// so a file is only used on a page that is clearly its own: at least half of the page's questions,
+    /// or half of the file's questions, have to match. The file that matches best wins.
+    func answers(for questions: [String]) -> [String: String] {
+        let keys = questions.map(Self.normalize)
+        var best: (answers: [String: String], score: Int)?
+        for batch in batches where !batch.isEmpty {
+            var found: [String: String] = [:]
+            for (q, key) in zip(questions, keys) {
+                if let a = Self.lookup(key, in: batch) { found[q] = a }
+            }
+            let n = found.count
+            guard n > 0, n * 2 >= keys.count || n * 2 >= batch.count else { continue }
+            if best == nil || n > best!.score { best = (found, n) }
+        }
+        return best?.answers ?? [:]
+    }
+
+    private static func lookup(_ key: String, in items: [String: String]) -> String? {
         guard !key.isEmpty else { return nil }
         if let exact = items[key] { return exact }
         guard key.count >= 15 else { return nil }
@@ -288,6 +317,6 @@ final class ImportedAnswers {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(items) { try? data.write(to: fileURL, options: .atomic) }
+        if let data = try? JSONEncoder().encode(batches) { try? data.write(to: fileURL, options: .atomic) }
     }
 }

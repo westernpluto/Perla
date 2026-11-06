@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// A piece of text with its inline style.
 struct InlineRun: Hashable {
@@ -167,6 +170,10 @@ final class DocParser: NSObject, XMLParserDelegate {
         let tag = (elementName.components(separatedBy: ":").last ?? elementName).lowercased()
         let classes = (attrs["class"] ?? "").split(separator: " ").map { String($0) }
 
+        // Page markers ("page23") are hidden, but kept as places a link can jump to.
+        if skipDepth == 0, classes.contains("pageNum"), let id = attrs["id"], let f = currentFrame {
+            f.anchors.append(id)
+        }
         if skipDepth > 0 || shouldSkip(tag: tag, classes: classes, attrs: attrs) {
             skipDepth += 1
             stack.append(.skip)

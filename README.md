@@ -19,12 +19,12 @@ A native study app for iPhone (built for iPhone Duo). It downloads publications 
 - **Meetings tab.** This week and next week, three rows each: the midweek meeting, its Congregation Bible Study chapter, and the Watchtower study article. Tap one to open it.
 - **Answers.** Type your answer straight into the answer box. An imported answers file fills the boxes in advance; anything you type replaces it. The ⋯ button copies, shares or prints a page's questions and answers.
 - **Text.** The Aa button sets text size, side margins and the font. The same settings are in Settings.
-- **Links.**
-  - Verses open in a sheet with "Open in Bible", which goes to that verse.
-  - Research (w, th, lmd, jr…) opens in a sheet; a whole lesson or chapter, like the Bible study, opens as a page.
-  - Songs show their words with a Play button; videos play inside the app.
-  - Bible references written in the text ("Isa. 11:1-10", "Juan 3:16") and book references ("lfb lesson 12") are tappable. If the publication isn't downloaded, Perla asks first.
-  - Other web links open in an in-app browser. Long-press a paragraph to copy or share it.
+- **References beside the page.** Tap a verse, footnote or research reference and it opens next to the page, so you keep your place: unfolded in a panel on the right, folded in a half-height sheet you can scroll the page behind. Buttons along the bottom:
+  - **Open in Bible** goes to that verse in the Bible.
+  - **Open in …** opens the cited publication at the cited page or lesson ("w17 October p. 23" → that page). If it isn't downloaded, Perla asks first.
+  - **Read as a page** for a whole lesson or chapter that comes with the workbook, like the Bible study.
+  - **Play song** for songs; videos play inside the app.
+  - Bible references written in the text ("Isa. 11:1-10") and book references ("lfb lesson 12") are tappable too. Other web links open in an in-app browser. Long-press a paragraph to copy or share it.
 - **Language.** The app is in English. Publications use the language you pick in the globe menu.
 - **iPhone Duo.** Layout follows the available width, never device or orientation checks, so it fills both displays; standard bars, sheets and menus let the system move controls to the side and away from the fold.
 
@@ -40,7 +40,7 @@ Settings → Import answers file (or the ⋯ menu in the questions list). You ca
 }
 ```
 
-Questions are matched by their text (numbers, accents and punctuation don't matter), so one file can cover a whole week. An answer you write yourself always takes the place of the imported one.
+Questions are matched by their text (numbers, accents and punctuation don't matter). Each file is kept separately and only fills a page it clearly belongs to (at least half of the page's or the file's questions match), so questions that repeat every week, like "What spiritual gems…?", don't get another week's answer. An answer you write yourself always takes the place of the imported one.
 
 ## Build
 

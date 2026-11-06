@@ -745,7 +745,8 @@ struct ImageViewer: View {
 
 // MARK: - References
 
-/// The body of a verse, footnote or cited publication, drawn natively.
+/// The body of a verse, footnote or cited publication, drawn natively, with what you can do with it
+/// (open it in the full publication, read it as a page, play the song) in a bar along the bottom.
 struct ReferenceContent: View {
     let sheet: ReferenceSheet
     let reader: ReaderModel
@@ -769,35 +770,54 @@ struct ReferenceContent: View {
                             .padding(.top, i == 0 ? 0 : PageLayout.gap(prev: sheet.nodes[i - 1], node: n, env: env))
                     }
                 }
-                if let song = sheet.media {
-                    Button {
-                        reader.play(song)
-                    } label: {
-                        Label("Play song", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .padding(.top, 22)
-                }
-                if let ref = sheet.open {
-                    Button {
-                        reader.openRef(ref)
-                    } label: {
-                        Label(ref.buttonTitle, systemImage: ref.isBible ? "book.closed" : "book.pages")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .padding(.top, 22)
-                }
             }
             .padding(20)
         }
+        .safeAreaInset(edge: .bottom) {
+            if sheet.media != nil || sheet.page != nil || sheet.open != nil {
+                actions
+            }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 10) {
+            if let song = sheet.media {
+                Button {
+                    reader.play(song)
+                } label: {
+                    Label("Play song", systemImage: "play.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            if let page = sheet.page {
+                Button {
+                    reader.readAsPage(page)
+                } label: {
+                    Label("Read as a page", systemImage: "doc.text").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            if let ref = sheet.open {
+                Button {
+                    reader.openRef(ref)
+                } label: {
+                    Label(ref.openTitle, systemImage: ref.isBible ? "book.closed" : "books.vertical")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
 }
 
-/// A verse, footnote or cited publication in a sheet (folded).
+/// A verse, footnote or cited publication in a half-height sheet (folded). The page stays visible and
+/// can still be scrolled behind it.
 struct ReferenceView: View {
     let sheet: ReferenceSheet
     let reader: ReaderModel
@@ -821,6 +841,35 @@ struct ReferenceView: View {
         }
         .environment(\.openURL, OpenURLAction { url in reader.handleLink(url) })
         .presentationDetents([.medium, .large])
+        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         .presentationDragIndicator(.visible)
+    }
+}
+
+/// The same reference in a panel beside the page (unfolded): the page stays where you were reading.
+struct ReferencePanel: View {
+    let sheet: ReferenceSheet
+    @ObservedObject var reader: ReaderModel
+    let base: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(sheet.title.isEmpty ? "Reference" : sheet.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                Button("Close", systemImage: "xmark") { reader.reference = nil }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            Divider()
+            ReferenceContent(sheet: sheet, reader: reader, base: base)
+                .id(sheet.id)
+        }
+        .background(Color(.secondarySystemBackground))
     }
 }

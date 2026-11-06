@@ -23,7 +23,10 @@ struct ReaderDestination: View {
 
 /// The reading screen: the page drawn natively from the publication, with answers typed straight
 /// into its answer boxes. Two buttons: Contents, and Aa for text size, side margins and font.
-/// Verses, footnotes and research open in a sheet; a whole lesson or chapter opens as a page.
+///
+/// A verse, footnote or research piece you tap opens beside the page, so you keep your place:
+/// unfolded in a panel on the right, folded in a half-height sheet over the page. From there,
+/// "Open in …" takes you to the full publication.
 struct ReaderScreen: View {
     let href: String?
     let find: String?
@@ -35,6 +38,7 @@ struct ReaderScreen: View {
     @State private var showContents = false
     @State private var showText = false
     @State private var zoomImage: ZoomItem?
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     init(pub: InstalledPub, href: String?, find: String? = nil) {
         self.href = href
@@ -46,14 +50,26 @@ struct ReaderScreen: View {
 
     var body: some View {
         GeometryReader { geo in
-            page(width: geo.size.width)
+            let panelOpen = sizeClass == .regular && reader.reference != nil
+            // About 40% for the panel, so the hinge falls in the page's text, never on a button.
+            let panelWidth = min(480, max(320, geo.size.width * 0.4))
+            HStack(spacing: 0) {
+                page(width: panelOpen ? geo.size.width - panelWidth - 1 : geo.size.width)
+                if panelOpen, let sheet = reader.reference {
+                    Divider().ignoresSafeArea(edges: .bottom)
+                    ReferencePanel(sheet: sheet, reader: reader, base: base)
+                        .frame(width: panelWidth)
+                        .transition(.move(edge: .trailing))
+                }
+            }
+            .animation(.snappy(duration: 0.25), value: panelOpen)
         }
         .navigationTitle(reader.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .environment(\.openURL, OpenURLAction { url in reader.handleLink(url) })
         .sheet(isPresented: $showContents) { contentsSheet }
-        .modifier(ReaderSheets(reader: reader, base: base))
+        .modifier(ReaderSheets(reader: reader, base: base, inPanel: sizeClass == .regular))
         .fullScreenCover(item: $zoomImage) { item in
             ImageViewer(url: item.url)
         }
@@ -307,15 +323,19 @@ struct TrailingIconLabelStyle: LabelStyle {
 struct ReaderSheets: ViewModifier {
     @ObservedObject var reader: ReaderModel
     let base: CGFloat
+    /// Unfolded, references show in the side panel instead of a sheet.
+    let inPanel: Bool
 
-    init(reader: ReaderModel, base: CGFloat) {
+    init(reader: ReaderModel, base: CGFloat, inPanel: Bool) {
         _reader = ObservedObject(wrappedValue: reader)
         self.base = base
+        self.inPanel = inPanel
     }
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $reader.reference) { sheet in
+            .sheet(item: Binding(get: { inPanel ? nil : reader.reference },
+                                 set: { if !inPanel { reader.reference = $0 } })) { sheet in
                 ReferenceView(sheet: sheet, reader: reader, base: base)
             }
             .fullScreenCover(item: $reader.media) { item in

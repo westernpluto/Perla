@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Something a link points to outside the open document: another publication (a book lesson or
 /// chapter, a magazine issue), a Bible chapter, or a jw.org document by its id.
@@ -10,6 +13,8 @@ struct PubRef: Hashable {
     var bibleBook: Int?
     var bibleChapter: Int?
     var bibleVerse: Int?
+    /// A printed page ("p. 23"), opened at that page.
+    var page: Int?
     var docID: String?
     var lang: String
     /// What the page called it, e.g. "lfb lesson 12".
@@ -70,6 +75,50 @@ enum Linkifier {
     private static let songRE = try? NSRegularExpression(pattern: "(?i)(?<![\\w-])(?:\(songWords))\\s+(\\d{1,3})(?!\\d)")
     static let unitRE = try? NSRegularExpression(pattern: "(?i)(?<![\\w])(?:\(unitWords))\\s*(\\d{1,3})(?!\\d)")
 
+    /// The publication a research heading comes from: "jr p. 29 …", "w17 October pp. 23-24 …",
+    /// "lmd lesson 3 point 4 …", "wcg pp. 78-81 …", "nwtsty Galatians 5:16". Songs aren't included.
+    static func research(title: String, lang: String) -> PubRef? {
+        let tokens = title.split(separator: " ").map(String.init)
+        guard let first = tokens.first, first.range(of: "^[a-z][a-z0-9-]{0,9}$", options: .regularExpression) != nil,
+              first != "sjj" else { return nil }
+        if first.hasPrefix("nwt"), let m = BibleNames.matches(in: title).first {
+            var ref = PubRef(symbol: "nwt", bibleBook: m.book, bibleChapter: m.chapter, lang: lang, label: title)
+            ref.bibleVerse = m.verse
+            return ref
+        }
+        var symbol = first
+        var issue = ""
+        var rest = Array(tokens.dropFirst())
+        // Magazines: "w17 October", "g24 No. 1", "w74 12/1".
+        if let m = first.range(of: "^([a-z]+)(\\d{2})$", options: .regularExpression), m == first.startIndex..<first.endIndex {
+            let letters = String(first.prefix { $0.isLetter })
+            let yy = Int(first.dropFirst(letters.count)) ?? 0
+            let year = yy > (Calendar.current.component(.year, from: Date()) % 100) ? 1900 + yy : 2000 + yy
+            symbol = letters
+            if let next = rest.first {
+                if let month = WeekFinder.month(named: next, lang: lang) {
+                    issue = String(format: "%04d%02d", year, month)
+                    rest.removeFirst()
+                } else if next.range(of: "^\\d{1,2}/\\d{1,2}$", options: .regularExpression) != nil {
+                    let md = next.split(separator: "/").compactMap { Int($0) }
+                    issue = String(format: "%04d%02d%02d", year, md[0], md[1])
+                    rest.removeFirst()
+                }
+            }
+        }
+        let tail = rest.joined(separator: " ")
+        var ref = PubRef(symbol: symbol, issue: issue, lang: lang, label: title)
+        let ns = tail as NSString
+        if let m = pageRE?.firstMatch(in: tail, range: NSRange(location: 0, length: ns.length)) {
+            ref.page = Int(ns.substring(with: m.range(at: 1)))
+        } else if let m = unitRE?.firstMatch(in: tail, range: NSRange(location: 0, length: ns.length)) {
+            ref.number = Int(ns.substring(with: m.range(at: 1)))
+        }
+        return ref
+    }
+
+    private static let pageRE = try? NSRegularExpression(pattern: "^(?:pp?|p[áa]gs?|S|pág|pag)\\.\\s*(\\d{1,4})")
+
     /// The first publication reference in `text`.
     static func pubRef(in text: String, lang: String) -> PubRef? {
         let ns = text as NSString
@@ -95,7 +144,7 @@ enum Linkifier {
         guard runs.contains(where: { eligible($0) && $0.text.count >= 2 }) else { return runs }
 
         // One string for the block; runs that can't take a link become placeholders the patterns never match.
-        let joined = NSMutableString()
+        let joined = NSMutableString(string: "")
         var starts: [Int] = []
         for r in runs {
             starts.append(joined.length)
@@ -112,7 +161,7 @@ enum Linkifier {
 
         func label(_ r: NSRange) -> String {
             let t = ns.substring(with: r).replacingOccurrences(of: "\u{1}", with: "")
-            return t.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+            return t.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics) ?? ""
         }
         var hits: [(range: NSRange, link: String)] = []
         for m in pubRE?.matches(in: text, range: all) ?? [] {
@@ -333,6 +382,10 @@ enum PubResolver {
         if let docID = ref.docID, let file = pub.spine.first(where: { $0.contains(docID) }) {
             return .reader(ReaderRoute(pubID: pub.id, href: file))
         }
+        if let page = ref.page {
+            let href = await Task.detached(priority: .userInitiated) { findPage(pub: pub, root: root, page: page) }.value
+            if let href { return .reader(ReaderRoute(pubID: pub.id, href: href)) }
+        }
         guard let number = ref.number else { return .contents(PubRoute(pubID: pub.id)) }
         let href = await Task.detached(priority: .userInitiated) { findDocument(pub: pub, root: root, number: number) }.value
         if let href { return .reader(ReaderRoute(pubID: pub.id, href: href)) }
@@ -344,6 +397,17 @@ enum PubResolver {
         for pub in LibraryStore.shared.pubs {
             if let file = pub.spine.first(where: { ($0 as NSString).lastPathComponent.contains(docID) }) {
                 return ReaderRoute(pubID: pub.id, href: file)
+            }
+        }
+        return nil
+    }
+
+    /// The document holding printed page `page` (each page starts with an id="pageN" marker).
+    nonisolated static func findPage(pub: InstalledPub, root: URL, page: Int) -> String? {
+        let marker = "id=\"page\(page)\""
+        for file in pub.spine where !file.contains("-extracted") {
+            if let html = try? String(contentsOf: root.appendingPathComponent(file), encoding: .utf8), html.contains(marker) {
+                return file + "#page\(page)"
             }
         }
         return nil

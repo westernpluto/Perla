@@ -15,13 +15,15 @@ struct CatalogItem: Identifiable, Hashable {
         CatalogItem(symbol: "th", title: "Apply Yourself to Reading and Teaching"),
         CatalogItem(symbol: "ia", title: "Imitate Their Faith"),
         CatalogItem(symbol: "cl", title: "Draw Close to Jehovah"),
-        CatalogItem(symbol: "jy", title: "Jesus—The Way, the Truth, the Life"),
         CatalogItem(symbol: "lvs", title: "Keep Yourselves in God's Love"),
         CatalogItem(symbol: "rr", title: "Pure Worship of Jehovah—Restored At Last!"),
         CatalogItem(symbol: "kr", title: "God's Kingdom Rules!"),
         CatalogItem(symbol: "bt", title: "“Bearing Thorough Witness”"),
         CatalogItem(symbol: "lfb", title: "Lessons You Can Learn From the Bible"),
         CatalogItem(symbol: "sjj", title: "Sing Out Joyfully to Jehovah"),
+        CatalogItem(symbol: "jr", title: "God’s Word for Us Through Jeremiah"),
+        CatalogItem(symbol: "bhs", title: "What Can the Bible Teach Us?"),
+        CatalogItem(symbol: "jy", title: "Jesus—The Way, the Truth, the Life"),
     ]
 }
 

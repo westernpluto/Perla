@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 struct TOCEntry: Codable, Hashable, Identifiable {
     var label: String

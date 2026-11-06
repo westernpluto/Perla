@@ -35,6 +35,8 @@ struct ReferenceSheet: Identifiable {
     var open: PubRef? = nil
     /// A song's recording, played from the sheet.
     var media: MediaItem? = nil
+    /// A whole lesson or chapter included with the page, readable as a page of its own.
+    var page: ReaderRoute? = nil
 }
 
 /// One open document (a workbook week, an article, a Bible chapter…), its questions and their answers.
@@ -77,6 +79,8 @@ final class ReaderModel: ObservableObject {
     private var extractedFootnotes: [String: Reference] = [:]
     private var nodeByID: [Int: DocNode] = [:]
     private var topLevelOf: [Int: Int] = [:]
+    /// The imported answers that belong to this page.
+    private var importedHere: [String: String] = [:]
     private var loadToken = UUID()
     private var started = false
     private var importObserver: AnyCancellable?
@@ -220,10 +224,11 @@ final class ReaderModel: ObservableObject {
             requestScroll(to: id)
         }
 
+        importedHere = ImportedAnswers.shared.answers(for: list.map(\.text))
         for q in list {
             if let cached = AnswerStore.shared.get(key(q.id)) {
                 answers[q.id] = AnswerState(status: .done, text: cached.text, note: cached.engine)
-            } else if let imported = ImportedAnswers.shared.answer(for: q.text) {
+            } else if let imported = importedHere[q.text] {
                 answers[q.id] = AnswerState(status: .done, text: imported, note: "Imported")
             } else {
                 answers[q.id] = AnswerState()
@@ -233,8 +238,9 @@ final class ReaderModel: ObservableObject {
 
     /// After an answers file is imported (or removed), fill the boxes you haven't written yourself.
     private func applyImported() {
+        importedHere = ImportedAnswers.shared.answers(for: questions.map(\.text))
         for q in questions where AnswerStore.shared.get(key(q.id)) == nil {
-            if let imported = ImportedAnswers.shared.answer(for: q.text) {
+            if let imported = importedHere[q.text] {
                 answers[q.id] = AnswerState(status: .done, text: imported, note: "Imported")
             } else if answers[q.id]?.note == "Imported" {
                 answers[q.id] = AnswerState()
@@ -367,11 +373,16 @@ final class ReaderModel: ObservableObject {
             let song = MediaItem(source: .pubMedia(["pub": "sjjm", "track": String(number)]), lang: pub.lang,
                                  title: title)
             reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false, media: song)
-        } else if ref.text.count > 2500 {
-            afterSheet { $0.pushRoute = ReaderRoute(pubID: $0.pub.id, href: file + "#" + anchor) }
-        } else {
-            reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false)
+            return
         }
+        reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false,
+                                   open: Linkifier.research(title: title, lang: pub.lang),
+                                   page: ref.text.count > 2500 ? ReaderRoute(pubID: pub.id, href: file + "#" + anchor) : nil)
+    }
+
+    /// Reads a whole lesson or chapter that came with the page as a page of its own.
+    func readAsPage(_ route: ReaderRoute) {
+        afterSheet { $0.pushRoute = route }
     }
 
     private func exists(_ file: String) -> Bool {
@@ -518,7 +529,7 @@ final class ReaderModel: ObservableObject {
     var answeredCount: Int { answers.values.filter { $0.status == .done }.count }
 
     func importedAnswer(_ id: String) -> String? {
-        questions.first { $0.id == id }.flatMap { ImportedAnswers.shared.answer(for: $0.text) }
+        questions.first { $0.id == id }.flatMap { importedHere[$0.text] }
     }
 
     /// Removes your own answer; the imported one (if any) comes back.

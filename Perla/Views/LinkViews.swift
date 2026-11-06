@@ -115,6 +115,15 @@ struct PubRefDestination: View {
 }
 
 extension PubRef {
+    /// The button that opens the full publication: "Open in Bible", "Open in The Watchtower · Oct 2017".
+    var openTitle: String {
+        if isBible { return "Open in Bible" }
+        if CatalogItem.books.contains(where: { $0.symbol == symbol }) || ["w", "wp", "g", "mwb"].contains(symbol) {
+            return "Open in \(displayTitle)"
+        }
+        return "Open in publication"
+    }
+
     /// The publication's name, for titles and the download card.
     var displayTitle: String {
         if isBible { return label.isEmpty ? "Bible" : label }

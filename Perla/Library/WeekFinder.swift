@@ -29,31 +29,36 @@ enum WeekFinder {
             }
         }
 
-        // 2. Dates printed at the top of a chapter, or next to a link on a contents page.
+        // 2. A date printed at the top of a document ("NOVEMBER 9-15, 2026") is that document's week.
+        //    A date next to a link to another document is a contents page entry; it's only used if no
+        //    document carries the date itself.
         var linkMatch: Match?
+        var best: (match: Match, position: Int)?
         for file in pub.spine {
             guard let html = try? String(contentsOf: root.appendingPathComponent(file), encoding: .utf8) else { continue }
             let blocks = HTMLText.blocks(html)
             var seenText = 0
             for (i, block) in blocks.enumerated() {
                 if !block.text.isEmpty { seenText += 1 }
+                guard seenText <= 12 || linkMatch == nil else { break }
                 let head = String(block.text.prefix(180))
                 guard let d = startDate(in: head, locale: locale, near: date), inWeek(d) else { continue }
-                if seenText <= 4 {
-                    return Match(href: file, label: label(for: file, fallback: block.text), start: d)
-                }
-                if linkMatch == nil {
-                    let nearby = blocks[i..<min(blocks.count, i + 4)].flatMap(\.hrefs)
-                    if let h = nearby.first(where: { !$0.hasPrefix("http") && !$0.hasPrefix("#") }) {
+                let nearby = blocks[i..<min(blocks.count, i + 3)].flatMap(\.hrefs)
+                    .filter { !$0.hasPrefix("http") && !$0.hasPrefix("#") && !$0.contains("-extracted") }
+                if let h = nearby.first {
+                    if linkMatch == nil {
                         let target = EPUBParser.path(h, relativeTo: file)
                         let targetFile = target.components(separatedBy: "#").first ?? target
                         let nextText = blocks[i..<min(blocks.count, i + 3)].map(\.text).first { !$0.isEmpty && $0 != block.text }
                         linkMatch = Match(href: target, label: label(for: targetFile, fallback: nextText ?? block.text), start: d)
                     }
+                } else if seenText <= 4, best == nil || seenText < best!.position {
+                    best = (Match(href: file, label: label(for: file, fallback: block.text), start: d), seenText)
+                    if seenText == 1 { return best!.match }
                 }
             }
         }
-        return linkMatch
+        return best?.match ?? linkMatch
     }
 
     /// Reads the first date in `text` ("October 26–November 1", "26 de octubre a 1 de noviembre",
@@ -76,6 +81,7 @@ enum WeekFinder {
         hits.sort { $0.range.lowerBound < $1.range.lowerBound }
 
         let beforePattern = "(\\d{1,2})\\.?(?:\\s*(?:[-–—]|a|al|to|au|bis|e|y|and)\\s*\\d{1,2}\\.?)?\\s*(?:de|del|di)?\\s*$"
+        var found: [Date] = []
         for hit in hits {
             let before = String(folded[folded.startIndex..<hit.range.lowerBound].suffix(24))
             let after = String(folded[hit.range.upperBound...].prefix(10))
@@ -87,10 +93,13 @@ enum WeekFinder {
                       let num = after[r].range(of: "\\d{1,2}", options: .regularExpression) {
                 day = Int(after[r][num])
             }
-            guard let d = day, (1...31).contains(d) else { continue }
-            return closest(month: hit.month, day: d, near: near)
+            guard let d = day, (1...31).contains(d), let date = closest(month: hit.month, day: d, near: near) else { continue }
+            found.append(date)
         }
-        return nil
+        guard let start = found.first else { return nil }
+        // "Study articles for: November 2–December 6" names a whole issue, not a week.
+        if let last = found.last, last.timeIntervalSince(start) > 8 * 86_400 { return nil }
+        return start
     }
 
     private static func closest(month: Int, day: Int, near: Date) -> Date? {
@@ -103,6 +112,16 @@ enum WeekFinder {
             choice = candidate
         }
         return choice
+    }
+
+    /// "October" / "octubre" → 10, in the publication's language or English.
+    static func month(named name: String, lang: String) -> Int? {
+        let word = name.trimmingCharacters(in: .punctuationCharacters)
+        for loc in [Locale(identifier: PubLanguage.find(lang).locale), Locale(identifier: "en_US")] {
+            let names = monthNames(loc)
+            if let i = names.firstIndex(of: fold(word, loc)) { return i % 12 + 1 }
+        }
+        return nil
     }
 
     private static func monthNames(_ locale: Locale) -> [String] {
