@@ -15,6 +15,18 @@ struct PubRef: Hashable {
     var bibleVerse: Int?
     /// A printed page ("p. 23"), opened at that page.
     var page: Int?
+    /// A numbered paragraph ("¶6"), scrolled to.
+    var paragraph: Int?
+
+    /// The in-app link for this reference (without the language, which comes from the page).
+    var link: String {
+        var s = "perla://ref?sym=\(symbol)"
+        if !issue.isEmpty { s += "&issue=\(issue)" }
+        if let number { s += "&n=\(number)" }
+        if let page { s += "&page=\(page)" }
+        if let paragraph { s += "&par=\(paragraph)" }
+        return s
+    }
     var docID: String?
     var lang: String
     /// What the page called it, e.g. "lfb lesson 12".
@@ -56,8 +68,9 @@ struct MediaItem: Identifiable, Hashable {
 enum Linkifier {
     /// Publication symbols worth turning into links (books jw.org offers as EPUB).
     static let symbols = [
-        "lfb", "bt", "lff", "lmd", "th", "ia", "cl", "jy", "lvs", "rr", "kr", "wcg", "scl", "bhs", "jl",
-        "rj", "lr", "ijwbv", "ijwyp", "ijwbq", "yp1", "yp2", "fg", "be", "si", "it-1", "it-2", "sjj",
+        "lfb", "bt", "lff", "lmd", "th", "ia", "cl", "jy", "lvs", "lv", "rr", "kr", "wcg", "scl", "bhs", "jl",
+        "rj", "lr", "jr", "gt", "jd", "od", "bm", "hl", "fy", "ll", "fg", "lc", "hf", "ypq", "mb", "wi", "sp", "ol",
+        "gf", "ijwbv", "ijwyp", "ijwbq", "yp1", "yp2", "si", "rs", "it-1", "it-2", "sjj",
     ]
 
     /// "lesson", "chapter", "study"… in the supported languages.
@@ -67,11 +80,52 @@ enum Linkifier {
 
     static let songWords = "song|canci[oó]n|c[aâá]ntico|cantique|lied|cantico"
 
+    /// "¶6", "¶1-11", "párr. 6", "párrs. 1-11"
+    private static let parPattern = "(?:\\s*(?:¶|p[áa]rrs?\\.|pars?\\.)\\s*(\\d{1,3})(?:-\\d{1,3})?)?"
+    /// A book: "lfb lesson 12", "bt chap. 5 ¶1-7", "th p. 5", "jr 165 ¶21".
     private static let pubRE: NSRegularExpression? = {
         let syms = symbols.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
-        return try? NSRegularExpression(pattern: "(?<![\\w-])(\(syms))\\s+(?:(?i:\(unitWords))\\s*)?(\\d{1,3})(?!\\d)")
+        return try? NSRegularExpression(pattern: "(?<![\\w-])(\(syms))\\s+(?:((?i:\(unitWords)))\\s*|((?i:pp?|p[áa]gs?)\\.)\\s*)?"
+            + "(\\d{1,4})(?:-\\d{1,4})?(?!\\d)" + parPattern)
     }()
-    private static let periodicalRE = try? NSRegularExpression(pattern: "(?<![\\w-])(w|wp|g|mwb)(\\d{2})\\.(\\d{1,2})(?!\\d)")
+    /// A magazine: "w17.04 28-32", "w21.03 3 ¶6", "w15 8/15 13".
+    private static let periodicalRE = try? NSRegularExpression(pattern:
+        "(?<![\\w-])(w|wp|g|mwb)(\\d{2})(?:\\.(\\d{1,2})|\\s+(\\d{1,2})/(\\d{1,2}))(?!\\d)"
+        + "(?:\\s+(\\d{1,3})(?:-\\d{1,3})?(?![\\d:])" + parPattern + ")?")
+
+    /// Every book or magazine reference in `text`, with its page or lesson and paragraph.
+    static func pubRefs(in text: String, lang: String) -> [(range: NSRange, ref: PubRef)] {
+        let ns = text as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        func group(_ m: NSTextCheckingResult, _ i: Int) -> String? {
+            m.range(at: i).location == NSNotFound ? nil : ns.substring(with: m.range(at: i))
+        }
+        var out: [(NSRange, PubRef)] = []
+        for m in pubRE?.matches(in: text, range: all) ?? [] {
+            guard let sym = group(m, 1), let n = group(m, 4).flatMap({ Int($0) }) else { continue }
+            var ref = PubRef(symbol: sym, lang: lang, label: ns.substring(with: m.range))
+            // "lesson 12" is a lesson; "p. 5" or a bare "165" is a printed page.
+            if group(m, 2) != nil { ref.number = n } else { ref.page = n }
+            ref.paragraph = group(m, 5).flatMap { Int($0) }
+            out.append((m.range, ref))
+        }
+        for m in periodicalRE?.matches(in: text, range: all) ?? [] {
+            guard let sym = group(m, 1), let yy = group(m, 2).flatMap({ Int($0) }) else { continue }
+            let year = yy > (Calendar.current.component(.year, from: Date()) % 100) ? 1900 + yy : 2000 + yy
+            let issue: String
+            if let mm = group(m, 3).flatMap({ Int($0) }), (1...12).contains(mm) {
+                issue = String(format: "%04d%02d", year, mm)
+            } else if let mm = group(m, 4).flatMap({ Int($0) }), let dd = group(m, 5).flatMap({ Int($0) }), (1...12).contains(mm) {
+                issue = String(format: "%04d%02d%02d", year, mm, dd)
+            } else { continue }
+            var ref = PubRef(symbol: sym, issue: issue, lang: lang, label: ns.substring(with: m.range))
+            ref.page = group(m, 6).flatMap { Int($0) }
+            ref.paragraph = group(m, 7).flatMap { Int($0) }
+            out.append((m.range, ref))
+        }
+        return out.sorted { $0.0.location < $1.0.location }
+    }
+
     private static let songRE = try? NSRegularExpression(pattern: "(?i)(?<![\\w-])(?:\(songWords))\\s+(\\d{1,3})(?!\\d)")
     static let unitRE = try? NSRegularExpression(pattern: "(?i)(?<![\\w])(?:\(unitWords))\\s*(\\d{1,3})(?!\\d)")
 
@@ -121,20 +175,7 @@ enum Linkifier {
 
     /// The first publication reference in `text`.
     static func pubRef(in text: String, lang: String) -> PubRef? {
-        let ns = text as NSString
-        let range = NSRange(location: 0, length: ns.length)
-        if let m = pubRE?.firstMatch(in: text, range: range), let n = Int(ns.substring(with: m.range(at: 2))) {
-            return PubRef(symbol: ns.substring(with: m.range(at: 1)), number: n, lang: lang,
-                          label: ns.substring(with: m.range))
-        }
-        if let m = periodicalRE?.firstMatch(in: text, range: range),
-           let yy = Int(ns.substring(with: m.range(at: 2))), let mm = Int(ns.substring(with: m.range(at: 3))),
-           (1...12).contains(mm) {
-            let sym = ns.substring(with: m.range(at: 1))
-            return PubRef(symbol: sym, issue: String(format: "20%02d%02d", yy, mm), lang: lang,
-                          label: ns.substring(with: m.range))
-        }
-        return nil
+        pubRefs(in: text, lang: lang).first?.ref
     }
 
     /// Splits runs that have no link of their own so publication references and songs become links.
@@ -164,16 +205,8 @@ enum Linkifier {
             return t.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics) ?? ""
         }
         var hits: [(range: NSRange, link: String)] = []
-        for m in pubRE?.matches(in: text, range: all) ?? [] {
-            let sym = ns.substring(with: m.range(at: 1))
-            let n = ns.substring(with: m.range(at: 2))
-            hits.append((m.range, "perla://ref?sym=\(sym)&n=\(n)&t=\(label(m.range))"))
-        }
-        for m in periodicalRE?.matches(in: text, range: all) ?? [] {
-            let sym = ns.substring(with: m.range(at: 1))
-            guard let yy = Int(ns.substring(with: m.range(at: 2))), let mm = Int(ns.substring(with: m.range(at: 3))),
-                  (1...12).contains(mm) else { continue }
-            hits.append((m.range, "perla://ref?sym=\(sym)&issue=\(String(format: "20%02d%02d", yy, mm))&t=\(label(m.range))"))
+        for (r, ref) in pubRefs(in: text, lang: "") {
+            hits.append((r, ref.link + "&t=\(label(r))"))
         }
         for b in BibleNames.matches(in: text) {
             var link = "perla://bible?b=\(b.book)&c=\(b.chapter)"
@@ -382,12 +415,17 @@ enum PubResolver {
         if let docID = ref.docID, let file = pub.spine.first(where: { $0.contains(docID) }) {
             return .reader(ReaderRoute(pubID: pub.id, href: file))
         }
-        if let page = ref.page {
-            let href = await Task.detached(priority: .userInitiated) { findPage(pub: pub, root: root, page: page) }.value
-            if let href { return .reader(ReaderRoute(pubID: pub.id, href: href)) }
-        }
-        guard let number = ref.number else { return .contents(PubRoute(pubID: pub.id)) }
-        let href = await Task.detached(priority: .userInitiated) { findDocument(pub: pub, root: root, number: number) }.value
+        let page = ref.page, number = ref.number, paragraph = ref.paragraph
+        let href = await Task.detached(priority: .userInitiated) { () -> String? in
+            var found: String?
+            if let page { found = findPage(pub: pub, root: root, page: page) }
+            if found == nil, let number { found = findDocument(pub: pub, root: root, number: number) }
+            guard let f = found else { return nil }
+            if let paragraph, let anchor = findParagraph(file: f, root: root, number: paragraph) {
+                return f.components(separatedBy: "#")[0] + "#" + anchor
+            }
+            return f
+        }.value
         if let href { return .reader(ReaderRoute(pubID: pub.id, href: href)) }
         return .contents(PubRoute(pubID: pub.id))
     }
@@ -400,6 +438,17 @@ enum PubResolver {
             }
         }
         return nil
+    }
+
+    /// The element id of paragraph `number` in a document (its number is in data-pnum="N").
+    nonisolated static func findParagraph(file: String, root: URL, number: Int) -> String? {
+        let path = file.components(separatedBy: "#")[0]
+        guard let html = try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8),
+              let mark = html.range(of: "data-pnum=\"\(number)\"") else { return nil }
+        let before = html[..<mark.lowerBound]
+        guard let p = before.range(of: "<p ", options: .backwards),
+              let idRange = html[p.lowerBound...].range(of: "id=\"([^\"]+)\"", options: .regularExpression) else { return nil }
+        return String(html[idRange].dropFirst(4).dropLast())
     }
 
     /// The document holding printed page `page` (each page starts with an id="pageN" marker).

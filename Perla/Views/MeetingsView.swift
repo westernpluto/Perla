@@ -75,10 +75,11 @@ enum MeetingReader {
 
 @MainActor
 final class MeetingsModel: ObservableObject {
-    /// This week and next week.
+    /// Week 0 is this week; more are added with "Show more weeks".
     @Published var weeks: [MeetingWeek] = [MeetingWeek(), MeetingWeek()]
     @Published var loading = false
     private var loadedKey = ""
+    private var loadedCount = 0
 
     static func weekStart(_ offset: Int) -> Date {
         let today = Issues.weekStart(Date())
@@ -89,12 +90,31 @@ final class MeetingsModel: ObservableObject {
         let lang = Prefs.langCode
         let key = "\(lang)|\(Self.weekStart(0).timeIntervalSince1970)"
         guard force || key != loadedKey, !loading else { return }
+        if key != loadedKey || force { loadedCount = 0 }
         loading = true
         defer { loading = false }
-        for offset in 0..<2 {
+        for offset in loadedCount..<weeks.count {
             weeks[offset] = await load(week: Self.weekStart(offset), lang: lang)
         }
+        loadedCount = weeks.count
         loadedKey = key
+    }
+
+    /// Adds the next four weeks (as far as published workbooks and Watchtowers go).
+    func showMore() async {
+        weeks += Array(repeating: MeetingWeek(), count: 4)
+        await refresh(force: false, extending: true)
+    }
+
+    private func refresh(force: Bool, extending: Bool) async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
+        let lang = Prefs.langCode
+        for offset in loadedCount..<weeks.count {
+            weeks[offset] = await load(week: Self.weekStart(offset), lang: lang)
+        }
+        loadedCount = weeks.count
     }
 
     private func load(week: Date, lang: String) async -> MeetingWeek {
@@ -149,14 +169,14 @@ final class MeetingsModel: ObservableObject {
     }
 }
 
-/// This week's and next week's meetings, three rows each. Tap one to open it.
+/// The coming weeks' meetings, three rows each. Tap one to open it.
 struct MeetingsView: View {
     @StateObject private var model = MeetingsModel()
     @AppStorage(Prefs.Key.lang) private var lang = "E"
 
     var body: some View {
         List {
-            ForEach(0..<2, id: \.self) { i in
+            ForEach(model.weeks.indices, id: \.self) { i in
                 Section(header(i)) {
                     let week = model.weeks[i]
                     row(week.midweek, icon: "person.2", fallback: "Midweek meeting", note: week.midweekNote)
@@ -166,6 +186,14 @@ struct MeetingsView: View {
                     row(week.watchtower, icon: "text.book.closed", fallback: "Watchtower Study",
                         note: week.watchtowerNote)
                 }
+            }
+            Section {
+                Button {
+                    Task { await model.showMore() }
+                } label: {
+                    Label("Show more weeks", systemImage: "calendar.badge.plus")
+                }
+                .disabled(model.loading)
             }
         }
         .navigationTitle("Meetings")
@@ -184,8 +212,8 @@ struct MeetingsView: View {
                 MeetingRowLabel(icon: icon, title: item.title, detail: item.detail, loading: false)
             }
         } else {
-            MeetingRowLabel(icon: icon, title: fallback, detail: model.loading ? "Getting it from jw.org…" : (note ?? ""),
-                            loading: model.loading)
+            MeetingRowLabel(icon: icon, title: fallback, detail: note ?? "Getting it from jw.org…",
+                            loading: note == nil)
         }
     }
 
@@ -195,7 +223,8 @@ struct MeetingsView: View {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US")
         f.setLocalizedDateFormatFromTemplate("MMMd")
-        return (offset == 0 ? "This week" : "Next week") + " · \(f.string(from: start)) – \(f.string(from: end))"
+        let name = offset == 0 ? "This week" : offset == 1 ? "Next week" : "In \(offset) weeks"
+        return name + " · \(f.string(from: start)) – \(f.string(from: end))"
     }
 }
 

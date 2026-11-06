@@ -14,6 +14,8 @@ struct PageEnv: Equatable {
     var findTerm: String?
     /// Which document this is, so views from the last chapter are never reused by mistake.
     var doc: String
+    /// Bible chapters: verse numbers open that verse's study notes.
+    var verseLinks = false
 }
 
 /// Style that flows from a container into everything inside it, like CSS inheritance.
@@ -432,7 +434,13 @@ enum PageText {
             a.font = font
             if let color { a.foregroundColor = color }
             if offset != 0 { a.baselineOffset = offset }
-            if let link = r.link, let url = ReaderModel.linkURL(link, text: r.text) { a.link = url }
+            if let link = r.link, let url = ReaderModel.linkURL(link, text: r.text) {
+                a.link = url
+            } else if env.verseLinks, r.chapterNum || (r.sup && !r.isNoteMark),
+                      let v = r.chapterNum ? 1 : Int(r.text.trimmingCharacters(in: .whitespaces)),
+                      let url = URL(string: "perla://verse?v=\(v)") {
+                a.link = url
+            }
             out += a
         }
 

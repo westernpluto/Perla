@@ -25,7 +25,7 @@ struct ScrollRequest: Equatable {
 
 /// A verse, footnote or publication reference shown in a sheet.
 struct ReferenceSheet: Identifiable {
-    let id = UUID()
+    var id = UUID()
     let title: String
     let text: String
     let nodes: [DocNode]
@@ -293,8 +293,10 @@ final class ReaderModel: ObservableObject {
         case "ref":
             let sym = query["sym"] ?? ""
             guard !sym.isEmpty else { break }
-            let ref = PubRef(symbol: sym, issue: query["issue"] ?? "", number: query["n"].flatMap { Int($0) },
+            var ref = PubRef(symbol: sym, issue: query["issue"] ?? "", number: query["n"].flatMap { Int($0) },
                              lang: pub.lang, label: query["t"] ?? "")
+            ref.page = query["page"].flatMap { Int($0) }
+            ref.paragraph = query["par"].flatMap { Int($0) }
             openRef(ref)
         case "song":
             if let n = query["n"], !n.isEmpty {
@@ -302,6 +304,8 @@ final class ReaderModel: ObservableObject {
                                   title: query["t"].flatMap { $0.isEmpty ? nil : $0 } ?? "Song \(n)")
                 afterSheet { $0.media = item }
             }
+        case "verse":
+            if let v = query["v"].flatMap({ Int($0) }) { showStudyNotes(verse: v) }
         case "bible":
             guard let b = query["b"].flatMap({ Int($0) }), let c = query["c"].flatMap({ Int($0) }) else { break }
             showBible(book: b, chapter: c, verse: query["v"].flatMap { Int($0) },
@@ -375,8 +379,21 @@ final class ReaderModel: ObservableObject {
             reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false, media: song)
             return
         }
+        var open = Linkifier.research(title: title, lang: pub.lang)
+        // The excerpt starts at a numbered paragraph ("9 It is a very serious matter…"); open there.
+        if open?.paragraph == nil, !(open?.isBible ?? true) {
+            var first: Int?
+            for n in ref.nodes where first == nil {
+                n.walk { node in
+                    if first == nil, let r = node.runs.first(where: \.parNum) {
+                        first = Int(r.text.trimmingCharacters(in: .whitespaces))
+                    }
+                }
+            }
+            open?.paragraph = first
+        }
         reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false,
-                                   open: Linkifier.research(title: title, lang: pub.lang),
+                                   open: open,
                                    page: ref.text.count > 2500 ? ReaderRoute(pubID: pub.id, href: file + "#" + anchor) : nil)
     }
 
@@ -421,6 +438,58 @@ final class ReaderModel: ObservableObject {
             } else {
                 self.openRef(ref)
             }
+        }
+    }
+
+    /// The current Bible chapter's number, from the book's chapter list.
+    private var currentChapter: Int? {
+        let file = currentFile.components(separatedBy: "#")[0]
+        return currentBook?.chapters.first { $0.href.components(separatedBy: "#")[0] == file }?.number
+    }
+
+    /// A verse number tapped in the Bible: the verse with its study notes (Study Edition), beside the page.
+    func showStudyNotes(verse: Int) {
+        guard let book = currentBook, let chapter = currentChapter else { return }
+        let title = "\(book.name) \(chapter):\(verse)"
+        let verseNode = BibleText.verses(in: doc, from: verse, to: verse)
+        let lang = pub.lang
+        var loading = verseNode.map { [$0] } ?? []
+        var wait = DocNode(kind: .text, tag: "p", role: .note)
+        wait.runs = [InlineRun(text: "Loading study notes…")]
+        wait.plain = "Loading study notes…"
+        loading.append(wait)
+        for i in loading.indices { loading[i].id = 1_900_000 + i }
+        reference = ReferenceSheet(title: title, text: "", nodes: loading, scripture: true)
+        let sheetID = reference?.id
+        Task { @MainActor [weak self] in
+            var nodes = verseNode.map { [$0] } ?? []
+            do {
+                let notes = try await StudyNotes.load(lang: lang, book: book.number, chapter: chapter)
+                if let these = notes[verse], !these.isEmpty {
+                    var heading = DocNode(kind: .text, tag: "h3", role: .h3)
+                    heading.runs = [InlineRun(text: "Study notes")]
+                    heading.plain = "Study notes"
+                    nodes.append(heading)
+                    nodes += these
+                } else {
+                    var none = DocNode(kind: .text, tag: "p", role: .note)
+                    none.runs = [InlineRun(text: "This verse has no study notes.")]
+                    none.plain = "This verse has no study notes."
+                    nodes.append(none)
+                }
+            } catch {
+                var failed = DocNode(kind: .text, tag: "p", role: .note)
+                failed.runs = [InlineRun(text: error.localizedDescription)]
+                failed.plain = error.localizedDescription
+                nodes.append(failed)
+            }
+            // Only if this verse is still the one being shown.
+            guard let self, self.reference?.id == sheetID else { return }
+            var numbered = nodes
+            for i in numbered.indices { numbered[i].id = 2_000_000 + i }
+            var sheet = ReferenceSheet(title: title, text: "", nodes: numbered, scripture: true)
+            if let sheetID { sheet.id = sheetID }
+            self.reference = sheet
         }
     }
 

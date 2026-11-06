@@ -45,6 +45,9 @@ private struct PubStack<Content: View>: View {
                 .navigationDestination(for: PubRef.self) { ref in
                     PubRefDestination(ref: ref)
                 }
+                .navigationDestination(for: LibrarySection.self) { section in
+                    LibrarySectionDestination(section: section)
+                }
         }
     }
 }

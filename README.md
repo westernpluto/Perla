@@ -12,11 +12,11 @@ A native study app for iPhone (built for iPhone Duo). It downloads publications 
 - **Answers where the publication puts them.**
   - Questions are found from the publication itself: the answer boxes it contains, the numbered study questions, and prompts like "PARA MEDITAR:" or "PREGÚNTESE:".
   - Study questions are tied to their exact paragraphs through the publication's own paragraph links.
-- **Native navigation.**
-  - Bible: a book grid colored by section like JW Library, then a chapter grid, then the chapter. Swipe sideways or use the buttons at the end of a chapter to go to the next or previous one.
-  - Other publications: a contents screen with each week's or article's picture and date.
-  - Library is grouped like JW Library: Bible, meeting workbooks, Watchtower, magazines, books.
-- **Meetings tab.** This week and next week, three rows each: the midweek meeting, its Congregation Bible Study chapter, and the Watchtower study article. Tap one to open it.
+- **Library like JW Library.** Bible, Books, Brochures and Booklets, Meeting Workbooks (two years back), The Watchtower (every study issue since 2016) and Videos. Everything jw.org offers as EPUB is listed, not only what's downloaded; tap something that isn't downloaded and Perla asks first. Downloaded shows what's on the phone (long-press to remove).
+- **Videos.** jw.org's video categories (JW Broadcasting, Children, The Bible, Dramas…), played inside the app.
+- **Study Bible.** In the Bible, tap a verse number to see the verse with its study notes from the Study Edition beside the text. jw.org only publishes that edition as JWPUB and PDF, so the notes come from wol.jw.org (a connection is needed the first time; each chapter is kept afterwards).
+- **Navigation.** Bible: a book grid colored by section, then chapters; swipe sideways for the next chapter. Other publications: a contents screen with each week's or article's picture and date.
+- **Meetings tab.** The coming weeks, three rows each: the midweek meeting, its Congregation Bible Study chapter and the Watchtower study article. "Show more weeks" goes further ahead.
 - **Answers.** Type your answer straight into the answer box. An imported answers file fills the boxes in advance; anything you type replaces it. The ⋯ button copies, shares or prints a page's questions and answers.
 - **Text.** The Aa button sets text size, side margins and the font. The same settings are in Settings.
 - **References beside the page.** Tap a verse, footnote or research reference and it opens next to the page, so you keep your place: unfolded in a panel on the right, folded in a half-height sheet you can scroll the page behind. Buttons along the bottom:
