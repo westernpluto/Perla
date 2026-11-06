@@ -2,13 +2,15 @@ import SwiftUI
 import AVKit
 import SafariServices
 
-/// Opens a lesson, chapter, article or Bible chapter from another publication,
-/// downloading the publication first when needed.
+/// Opens a lesson, chapter, article or Bible chapter from another publication. If the publication
+/// isn't on the phone yet, it asks first, like JW Library's download card.
 struct PubRefDestination: View {
     let ref: PubRef
+    @EnvironmentObject private var library: LibraryStore
     @State private var target: PubResolver.Target?
     @State private var error: String?
-    @State private var attempt = 0
+    @State private var confirmed = false
+    @State private var working = false
 
     var body: some View {
         Group {
@@ -18,36 +20,111 @@ struct PubRefDestination: View {
             case .some(.contents(let route)):
                 PubDestination(route: route)
             case .none:
-                if let error {
-                    ContentUnavailableView {
-                        Label("Couldn't open \(ref.label.isEmpty ? "this" : ref.label)", systemImage: "book.closed")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Try again") {
-                            self.error = nil
-                            attempt += 1
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    VStack(spacing: 14) {
-                        ProgressView()
-                        Text(ref.label.isEmpty ? "Opening…" : "Opening \(ref.label)…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                placeholder
+                    .navigationTitle(ref.displayTitle)
+                    .navigationBarTitleDisplayMode(.inline)
             }
         }
-        .task(id: attempt) {
-            guard target == nil else { return }
+        .onAppear {
+            if !needsDownload { start() }
+        }
+    }
+
+    @ViewBuilder
+    private var placeholder: some View {
+        if let error {
+            ContentUnavailableView {
+                Label("Couldn't open \(ref.displayTitle)", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Try again") { start() }
+                    .buttonStyle(.borderedProminent)
+            }
+        } else if needsDownload && !confirmed {
+            downloadCard
+        } else {
+            VStack(spacing: 14) {
+                ProgressView()
+                Text(needsDownload ? "Downloading \(ref.displayTitle)…" : "Opening \(ref.displayTitle)…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var needsDownload: Bool {
+        if ref.isBible { return library.installed(symbol: "nwt", issue: "", lang: ref.lang) == nil }
+        if ref.symbol.isEmpty { return false }
+        return library.installed(symbol: ref.symbol, issue: ref.issue, lang: ref.lang) == nil
+    }
+
+    private var downloadCard: some View {
+        VStack(spacing: 18) {
+            Image(systemName: ref.isBible ? "book.closed" : "books.vertical")
+                .font(.system(size: 52, weight: .light))
+                .foregroundStyle(.tint)
+            VStack(spacing: 6) {
+                Text(ref.displayTitle)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                if !ref.label.isEmpty, ref.label != ref.displayTitle {
+                    Text(ref.label)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("This publication isn't downloaded yet. Download it from jw.org to read it here, even offline.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Button {
+                confirmed = true
+                start()
+            } label: {
+                Label("Download", systemImage: "arrow.down.circle.fill")
+                    .frame(minWidth: 180)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            Text(PubLanguage.find(ref.lang).native)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func start() {
+        guard !working else { return }
+        error = nil
+        working = true
+        Task {
+            defer { working = false }
             do {
                 target = try await PubResolver.resolve(ref)
             } catch {
                 self.error = error.localizedDescription
             }
+        }
+    }
+}
+
+extension PubRef {
+    /// The publication's name, for titles and the download card.
+    var displayTitle: String {
+        if isBible { return label.isEmpty ? "Bible" : label }
+        if let item = CatalogItem.books.first(where: { $0.symbol == symbol }) { return item.title }
+        switch symbol {
+        case "w": return issue.isEmpty ? "The Watchtower" : "The Watchtower · \(Issues.label(symbol: "w", issue: issue))"
+        case "wp": return issue.isEmpty ? "The Watchtower" : "The Watchtower · \(Issues.label(symbol: "wp", issue: issue))"
+        case "g": return issue.isEmpty ? "Awake!" : "Awake! · \(Issues.label(symbol: "g", issue: issue))"
+        case "mwb": return issue.isEmpty ? "Meeting Workbook" : "Workbook · \(Issues.label(symbol: "mwb", issue: issue))"
+        default: return label.isEmpty ? symbol.uppercased() : label
         }
     }
 }

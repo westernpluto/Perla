@@ -40,7 +40,7 @@ struct AnswersPanel: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Answers")
+                Text("Questions")
                     .font(.headline)
                 Text(subtitle)
                     .font(.caption)
@@ -125,7 +125,7 @@ struct AnswersPanel: View {
                 .foregroundStyle(.tint)
             Text("No questions on this page")
                 .font(.headline)
-            Text("Open a meeting part, a study article or a book chapter to write answers.")
+            Text("Open a meeting part, a study article or a book chapter to answer its questions.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -173,20 +173,13 @@ struct AnswerRow: View {
     private var content: some View {
         switch state.status {
         case .idle:
-            HStack(spacing: 10) {
-                Button("Write answer") { reader.beginEdit(question.id) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                if !reader.paragraphText(question.id).isEmpty {
-                    Button("Use paragraph") { reader.useParagraph(question.id) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-            }
+            Text("Not answered yet · tap to go to the question")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         case .done:
             AnswerText(text: state.text)
             HStack(spacing: 16) {
-                Text(state.note)
+                Text(state.note == "Imported" ? "From your answers file" : state.note)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 Spacer()
@@ -199,13 +192,6 @@ struct AnswerRow: View {
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Copy")
-                Button {
-                    reader.beginEdit(question.id)
-                } label: {
-                    Image(systemName: "pencil")
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Edit")
             }
             .font(.footnote)
         }

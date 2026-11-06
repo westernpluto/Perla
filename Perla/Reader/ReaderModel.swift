@@ -35,11 +35,6 @@ struct ReferenceSheet: Identifiable {
     var open: PubRef? = nil
 }
 
-struct EditRequest: Identifiable {
-    let id: String
-    var text: String
-}
-
 /// One open document (a workbook week, an article, a Bible chapter…), its questions and their answers.
 @MainActor
 final class ReaderModel: ObservableObject {
@@ -58,10 +53,8 @@ final class ReaderModel: ObservableObject {
     /// The document couldn't be read (missing or damaged file).
     @Published private(set) var loadFailed = false
     @Published private(set) var findTerm: String?
-    @Published private(set) var highlights: [Int: [String]] = [:]
     @Published var scrollRequest: ScrollRequest?
     @Published var reference: ReferenceSheet?
-    @Published var editing: EditRequest?
     /// Another publication (a Bible study lesson, a cited article, a Bible chapter) to open on top.
     @Published var pushRef: PubRef?
     @Published var pushRoute: ReaderRoute?
@@ -79,7 +72,6 @@ final class ReaderModel: ObservableObject {
     private var extracted: [String: Reference] = [:]
     private var nodeByID: [Int: DocNode] = [:]
     private var topLevelOf: [Int: Int] = [:]
-    private var keyText: [String: String] = [:]
     private var loadToken = UUID()
     private var started = false
     private var importObserver: AnyCancellable?
@@ -169,7 +161,6 @@ final class ReaderModel: ObservableObject {
     private func show(file: String, doc newDoc: Document, extracted refs: [String: Reference], fragment: String?, find: String?) {
         answers = [:]
         focusedID = nil
-        keyText = [:]
         found = [:]
 
         currentFile = file
@@ -189,36 +180,20 @@ final class ReaderModel: ObservableObject {
         nodeByID = byID
         topLevelOf = top
 
-        // Questions, where their answers go, and the sentences that answer them.
+        // Questions and where their answers go.
         var list: [PageQuestion] = []
         var atField: [Int: String] = [:]
         var afterNode: [Int: String] = [:]
-        var marks: [Int: [String]] = [:]
         if !pub.isBible {
             for f in QuestionFinder.find(newDoc) {
                 list.append(f.question)
                 found[f.question.id] = f
                 if let field = f.field { atField[field] = f.question.id } else { afterNode[f.node] = f.question.id }
-                let paragraphs = f.related.compactMap { byID[$0]?.plain }
-                if !paragraphs.isEmpty {
-                    let picked = KeySentences.pick(question: f.question.text, paragraphs: paragraphs)
-                    keyText[f.question.id] = picked.joined(separator: " ")
-                    for sentence in picked {
-                        if let b = f.related.first(where: { byID[$0]?.plain.contains(sentence) ?? false }) {
-                            marks[b, default: []].append(sentence)
-                        }
-                    }
-                } else {
-                    let research = references(for: f).map(\.text).joined(separator: " ")
-                    let picked = KeySentences.pick(question: f.question.text, paragraphs: [research])
-                    keyText[f.question.id] = picked.joined(separator: " ")
-                }
             }
         }
         questions = list
         questionAtField = atField
         questionAfterNode = afterNode
-        highlights = Prefs.highlight ? marks : [:]
         findTerm = nil
 
         if let find {
@@ -247,23 +222,6 @@ final class ReaderModel: ObservableObject {
                 answers[q.id] = AnswerState()
             }
         }
-    }
-
-    func refreshHighlights() {
-        guard Prefs.highlight else {
-            highlights = [:]
-            return
-        }
-        var marks: [Int: [String]] = [:]
-        for f in found.values where !f.related.isEmpty {
-            let paragraphs = f.related.compactMap { nodeByID[$0]?.plain }
-            for sentence in KeySentences.pick(question: f.question.text, paragraphs: paragraphs) {
-                if let b = f.related.first(where: { nodeByID[$0]?.plain.contains(sentence) ?? false }) {
-                    marks[b, default: []].append(sentence)
-                }
-            }
-        }
-        highlights = marks
     }
 
     private func nodeID(forAnchor anchor: String) -> Int? {
@@ -320,6 +278,10 @@ final class ReaderModel: ObservableObject {
                                   title: query["t"].flatMap { $0.isEmpty ? nil : $0 } ?? "Song \(n)")
                 afterSheet { $0.media = item }
             }
+        case "bible":
+            guard let b = query["b"].flatMap({ Int($0) }), let c = query["c"].flatMap({ Int($0) }) else { break }
+            showBible(book: b, chapter: c, verse: query["v"].flatMap { Int($0) },
+                      verseEnd: query["e"].flatMap { Int($0) }, label: query["t"] ?? "")
         case "web":
             if let s = query["u"], let u = URL(string: s) { return handleExternal(u, text: query["t"] ?? "") }
         default:
@@ -375,6 +337,40 @@ final class ReaderModel: ObservableObject {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard t.count >= 3 else { return nil }
         return extracted.values.first { $0.title.lowercased().hasPrefix(t) || t.hasPrefix($0.title.lowercased()) }
+    }
+
+    /// A Bible reference: the verses in a sheet (or the side pane when unfolded), like JW Library.
+    /// Without a verse, or without a downloaded Bible, the chapter opens instead.
+    func showBible(book: Int, chapter: Int, verse: Int?, verseEnd: Int?, label: String) {
+        let ref = PubRef(symbol: "nwt", bibleBook: book, bibleChapter: chapter, lang: pub.lang, label: label)
+        let library = LibraryStore.shared
+        let biblePub = isBible ? pub : library.installed(symbol: "nwt", issue: "", lang: pub.lang)
+        guard let verse, let biblePub else {
+            openRef(ref)
+            return
+        }
+        let root = library.folder(biblePub)
+        guard let index = BibleIndex.load(pub: biblePub, root: root),
+              let ch = index.books.first(where: { $0.number == book })?.chapters.first(where: { $0.number == chapter })
+        else {
+            openRef(ref)
+            return
+        }
+        let file = root.appendingPathComponent(ch.href.components(separatedBy: "#")[0])
+        let path = ch.href
+        let last = verseEnd ?? verse
+        Task { @MainActor [weak self] in
+            let node = await Task.detached(priority: .userInitiated) { () -> DocNode? in
+                guard let data = try? Data(contentsOf: file) else { return nil }
+                return BibleText.verses(in: DocParser.parse(data: data, path: path), from: verse, to: last)
+            }.value
+            guard let self else { return }
+            if let node {
+                self.reference = ReferenceSheet(title: label, text: node.plain, nodes: [node], scripture: true, open: ref)
+            } else {
+                self.openRef(ref)
+            }
+        }
     }
 
     /// Opens a lesson, chapter, article or Bible chapter from another publication.
@@ -470,45 +466,9 @@ final class ReaderModel: ObservableObject {
         return c.url ?? fixed
     }
 
-    /// Verses, footnotes and research a question points to.
-    private func references(for f: FoundQuestion) -> [Reference] {
-        var links = f.links
-        if links.isEmpty, !f.isStudyQuestion {
-            // e.g. "What spiritual gems have you found?": use the verses cited earlier in the week.
-            for t in doc.nodes {
-                guard t.id < f.node else { break }
-                t.walk { n in
-                    guard n.role != .h1, n.role != .h2 else { return }
-                    for r in n.runs { if let l = r.link, l.contains("#citation"), !links.contains(l) { links.append(l) } }
-                }
-            }
-        }
-        var out: [Reference] = []
-        for l in links {
-            guard let hash = l.firstIndex(of: "#") else { continue }
-            let frag = String(l[l.index(after: hash)...])
-            if frag.hasPrefix("pcitation"), let r = extracted[frag] { out.append(r) }
-            else if frag.hasPrefix("citation"), let r = doc.citations[frag] { out.append(r) }
-            else if frag.hasPrefix("footnote"), let r = doc.footnotes[frag] { out.append(r) }
-        }
-        return out
-    }
-
     // MARK: Answers
 
     var answeredCount: Int { answers.values.filter { $0.status == .done }.count }
-
-    /// The sentence from the paragraph that answers the question (highlighted on the page).
-    func paragraphText(_ id: String) -> String {
-        (keyText[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func useParagraph(_ id: String) {
-        let t = paragraphText(id)
-        guard !t.isEmpty else { return }
-        answers[id] = AnswerState(status: .done, text: t, note: "From the paragraph")
-        AnswerStore.shared.set(key(id), text: t, engine: "From the paragraph")
-    }
 
     func importedAnswer(_ id: String) -> String? {
         questions.first { $0.id == id }.flatMap { ImportedAnswers.shared.answer(for: $0.text) }
@@ -529,18 +489,16 @@ final class ReaderModel: ObservableObject {
         if let f = found[id], f.node >= 0 { requestScroll(to: f.node) }
     }
 
-    func beginEdit(_ id: String) {
-        editing = EditRequest(id: id, text: answers[id]?.text ?? "")
-    }
-
-    func saveEdit(_ id: String, text: String) {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else {
-            clearAnswer(id)
+    /// Called as you type in an answer box. Typing over an imported answer makes it yours.
+    func setAnswer(_ id: String, text: String) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            AnswerStore.shared.remove(key(id))
+            answers[id] = AnswerState(status: .idle, text: text)
             return
         }
-        answers[id] = AnswerState(status: .done, text: t, note: "Your answer")
-        AnswerStore.shared.set(key(id), text: t, engine: "Your answer")
+        if answers[id]?.note == "Imported", text == answers[id]?.text { return }
+        answers[id] = AnswerState(status: .done, text: text, note: "Your answer")
+        AnswerStore.shared.set(key(id), text: text, engine: "Your answer")
     }
 
     private func key(_ id: String) -> String {

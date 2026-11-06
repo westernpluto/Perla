@@ -20,20 +20,37 @@ struct LibraryView: View {
                 }
                 .padding(.top, 60)
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
-                    ForEach(library.pubs) { pub in
-                        NavigationLink(value: PubRoute(pubID: pub.id)) {
-                            PubTile(pub: pub, image: library.coverImage(pub))
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Remove download", systemImage: "trash", role: .destructive) {
-                                confirmDelete = pub
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    ForEach(groups, id: \.title) { group in
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(group.title)
+                                .font(.title3.weight(.bold))
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
+                                ForEach(group.pubs) { pub in
+                                    NavigationLink(value: PubRoute(pubID: pub.id)) {
+                                        PubTile(pub: pub, image: library.coverImage(pub))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button("Remove download", systemImage: "trash", role: .destructive) {
+                                            confirmDelete = pub
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
+                    Button {
+                        showDownloads = true
+                    } label: {
+                        Label("Get more publications", systemImage: "arrow.down.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
                 }
-                .padding(16)
+                .scenePadding(.horizontal)
+                .padding(.vertical, 16)
             }
         }
         .navigationTitle("Library")
@@ -55,6 +72,24 @@ struct LibraryView: View {
         ), presenting: confirmDelete) { pub in
             Button("Remove \(pub.title)", role: .destructive) { library.delete(pub) }
         }
+    }
+}
+
+extension LibraryView {
+    /// Downloads grouped like JW Library: Bible, meeting publications, magazines, books.
+    var groups: [(title: String, pubs: [InstalledPub])] {
+        func group(_ pub: InstalledPub) -> String {
+            if pub.isBible { return "Bible" }
+            switch pub.symbol {
+            case "mwb": return "Meeting Workbooks"
+            case "w": return "Watchtower"
+            case "wp", "g": return "Magazines"
+            default: return "Books and Brochures"
+            }
+        }
+        let order = ["Bible", "Meeting Workbooks", "Watchtower", "Magazines", "Books and Brochures"]
+        let grouped = Dictionary(grouping: library.pubs, by: group)
+        return order.compactMap { name in grouped[name].map { (title: name, pubs: $0) } }
     }
 }
 

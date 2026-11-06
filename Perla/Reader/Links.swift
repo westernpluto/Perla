@@ -119,6 +119,12 @@ enum Linkifier {
                   (1...12).contains(mm) else { continue }
             hits.append((m.range, "perla://ref?sym=\(sym)&issue=\(String(format: "20%02d%02d", yy, mm))&t=\(label(m.range))"))
         }
+        for b in BibleNames.matches(in: text) {
+            var link = "perla://bible?b=\(b.book)&c=\(b.chapter)"
+            if let v = b.verse { link += "&v=\(v)" }
+            if let e = b.verseEnd { link += "&e=\(e)" }
+            hits.append((b.range, link + "&t=\(label(b.range))"))
+        }
         for m in songRE?.matches(in: text, range: all) ?? [] {
             hits.append((m.range, "perla://song?n=\(ns.substring(with: m.range(at: 1)))&t=\(label(m.range))"))
         }
@@ -304,6 +310,7 @@ enum PubResolver {
             let pub = try await library.ensure(symbol: "nwt", lang: ref.lang)
             let root = library.folder(pub)
             guard let index = await BibleIndex.prepare(pub: pub, root: root) else { return .contents(PubRoute(pubID: pub.id)) }
+            BibleNames.register(index)
             guard let b = index.books.first(where: { $0.number == book }) else { return .contents(PubRoute(pubID: pub.id)) }
             let ch = b.chapters.first { $0.number == (ref.bibleChapter ?? 1) } ?? b.chapters.first
             guard let ch else { return .contents(PubRoute(pubID: pub.id)) }

@@ -13,25 +13,26 @@ A native study app for iPhone (built for iPhone Duo). It downloads publications 
   - Questions are found from the publication itself: the answer boxes it contains, the numbered study questions, and prompts like "PARA MEDITAR:" or "PREGÚNTESE:".
   - Study questions are tied to their exact paragraphs through the publication's own paragraph links.
 - **Native navigation.**
-  - Bible: a book grid colored by section like JW Library, then a chapter grid, then the chapter. Swipe sideways or use the buttons at the end of a chapter to go to the next or previous one. The grid button in the reader jumps to any book and chapter.
+  - Bible: a book grid colored by section like JW Library, then a chapter grid, then the chapter. Swipe sideways or use the buttons at the end of a chapter to go to the next or previous one.
   - Other publications: a contents screen with each week's or article's picture and date.
-  - Tapping a verse, footnote or reference opens it in a sheet, drawn the same way as the page.
-- **Meetings tab.** Finds this week's midweek meeting and Watchtower study article, downloads them if needed, and opens them.
-- **Answers.**
-  - Tap an answer box to write your answer; long-press for copy, edit and "use sentence from the paragraph".
-  - The sentence in the paragraph that answers each question is highlighted.
-  - Import a Perla answers file (or paste one) and its answers fill the matching boxes (see below).
+  - Library is grouped like JW Library: Bible, meeting workbooks, Watchtower, magazines, books.
+- **Meetings tab.** Pick a week (‹ ›) and see its parts: the midweek meeting's sections in their colors with each part, the Bible reading and the Congregation Bible Study lesson, and the weekend Watchtower study article with its picture and theme. Tap any part to open it.
+- **Answers.** Type your answer straight into the answer box. An imported answers file fills the boxes in advance; anything you type replaces it. The checklist button shows all questions and answers for copying, printing or sharing.
 - **Links that work.**
-  - Verses, footnotes and research open in a sheet. Research from another publication has an "Open" button for the whole lesson or chapter.
-  - Book references in the text ("lfb lesson 12", "bt chap. 5", "w24.04") are tappable: the publication is downloaded if needed and opened at that lesson or chapter.
-  - The Meetings tab shows this week's Congregation Bible Study lesson and opens it directly.
-  - Videos and songs play inside the app. Bible links and jw.org document links open in the app; other web links open in an in-app browser.
+  - Bible references in the text ("Isa. 11:1-10", "Juan 3:16") show the verses, with a button to open the chapter.
+  - Verses, footnotes and research open in a sheet (folded) or in a study pane beside the page (unfolded).
+  - Book references ("lfb lesson 12", "bt chap. 5", "w24.04") open at that lesson or chapter. If the publication isn't downloaded, Perla asks before downloading it.
+  - Videos and songs play inside the app; other web links open in an in-app browser.
+  - Long-press a paragraph to copy or share it.
 - **Language.** The app is in English. Publications and answers use the language you pick in the globe menu.
-- **iPhone Duo.** Folded: answers in the boxes plus a sheet with all of them. Unfolded: the page and an answers column side by side.
+- **iPhone Duo.** Layout follows size classes, never device or orientation checks:
+  - Folded (compact width): one column, references in sheets, a Midweek / Weekend switch.
+  - Unfolded (regular width): the page and the study pane share the display 50/50 and meet at the hinge, so nothing sits in the fold; Meetings shows both meetings side by side.
+  - Standard bars, sheets and menus throughout, so the system can move them to the side column and away from the fold.
 
 ## Answers file
 
-Settings → Import answers file (or the ⋯ menu in the answers list). You can also copy the file's text and tap **Paste answers**; text around the JSON (such as a ```json block) is ignored. The file is JSON:
+Settings → Import answers file (or the ⋯ menu in the questions list). You can also copy the file's text and tap **Paste answers**; text around the JSON (such as a ```json block) is ignored. The file is JSON:
 
 ```json
 {

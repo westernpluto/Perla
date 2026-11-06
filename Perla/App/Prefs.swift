@@ -39,16 +39,13 @@ struct PubLanguage: Identifiable, Hashable {
 
 enum Prefs {
     enum Key {
-        static let highlight = "highlightAnswers"
         static let lang = "pubLanguage"
         static let textScale = "textScale"
         static let serif = "serifFont"
-        static let panel = "panelVisible"
     }
 
     private static var d: UserDefaults { .standard }
 
-    static var highlight: Bool { d.object(forKey: Key.highlight) as? Bool ?? true }
     static var langCode: String { d.string(forKey: Key.lang) ?? "E" }
     static var language: PubLanguage { PubLanguage.find(langCode) }
 }

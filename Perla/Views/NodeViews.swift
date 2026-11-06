@@ -11,7 +11,6 @@ struct PageEnv: Equatable {
     var pubID: String
     /// How far a full-width band reaches past the text column on each side.
     var bleed: CGFloat
-    var highlights: [Int: [String]]
     var findTerm: String?
     /// Which document this is, so views from the last chapter are never reused by mistake.
     var doc: String
@@ -327,7 +326,10 @@ struct TextBlock: View {
             .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, env.bible && node.has("sz") ? env.base * 1.6 : 0)
-            .textSelection(.enabled)
+            .contextMenu {
+                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = node.plain }
+                ShareLink(item: node.plain)
+            }
     }
 
     private func textView(_ a: AttributedString, symbol: String?) -> Text {
@@ -339,7 +341,7 @@ struct TextBlock: View {
 }
 
 /// Builds the styled text of a block: bold and italic runs, paragraph and verse numbers,
-/// footnote marks, links, icons, highlighted answers and search matches.
+/// footnote marks, links, icons and search matches.
 @MainActor
 enum PageText {
     static func attributed(_ node: DocNode, size: CGFloat, env: PageEnv, heading: Bool,
@@ -434,11 +436,6 @@ enum PageText {
             out += a
         }
 
-        for sentence in env.highlights[node.id] ?? [] {
-            if let r = out.range(of: sentence) {
-                out[r].backgroundColor = Color.yellow.opacity(0.3)
-            }
-        }
         if let term = env.findTerm, !term.isEmpty {
             var start = out.startIndex
             while start < out.endIndex,
@@ -501,7 +498,7 @@ struct FieldBlock: View {
     let size: CGFloat
     /// True when the publication has no box here and the app added one.
     let added: Bool
-    @State private var copied = false
+    @FocusState private var focused: Bool
 
     init(reader: ReaderModel, questionID: String?, size: CGFloat, added: Bool) {
         _reader = ObservedObject(wrappedValue: reader)
@@ -512,85 +509,43 @@ struct FieldBlock: View {
 
     var body: some View {
         let state = questionID.flatMap { reader.answers[$0] } ?? AnswerState()
-        let focused = questionID != nil && reader.focusedID == questionID
-        VStack(alignment: .leading, spacing: 8) {
-            content(state)
+        VStack(alignment: .leading, spacing: 6) {
+            if let id = questionID {
+                TextField("Your answer", text: Binding(
+                    get: { reader.answers[id]?.text ?? "" },
+                    set: { reader.setAnswer(id, text: $0) }
+                ), axis: .vertical)
+                .font(.system(size: size * 0.95))
+                .lineSpacing(size * 0.2)
+                .foregroundStyle(JWColor.text)
+                .focused($focused)
+                .textInputAutocapitalization(.sentences)
+                if state.note == "Imported", !focused {
+                    Label("From your answers file", systemImage: "doc.text")
+                        .font(.system(size: size * 0.64))
+                        .foregroundStyle(JWColor.subdued)
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: size * 2.2, alignment: .leading)
-        .background(focused ? Color.accentColor.opacity(0.08) : Color.clear)
+        .frame(maxWidth: .infinity, minHeight: size * 2.4, alignment: .topLeading)
+        .background(focused ? Color.accentColor.opacity(0.06) : Color.clear)
         .overlay {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .strokeBorder(focused ? Color.accentColor.opacity(0.7) : JWColor.border,
-                              style: StrokeStyle(lineWidth: 1, dash: added ? [5, 3] : []))
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(focused ? Color.accentColor.opacity(0.8) : JWColor.border,
+                              style: StrokeStyle(lineWidth: focused ? 1.5 : 1, dash: added ? [5, 3] : []))
         }
         .contentShape(Rectangle())
-        .onTapGesture { tap(state) }
-        .contextMenu { if questionID != nil { menu(state) } }
-    }
-
-    @ViewBuilder
-    private func content(_ state: AnswerState) -> some View {
-        if questionID == nil {
-            EmptyView()
-        } else {
-            switch state.status {
-            case .idle:
-                HStack {
-                    Spacer()
-                    Label("Write answer", systemImage: "square.and.pencil")
-                        .font(.system(size: size * 0.78, weight: .semibold))
-                        .foregroundStyle(.tint)
-                }
-            case .done:
-                AnswerText(text: state.text, size: size * 0.95)
-                HStack(spacing: 12) {
-                    Text(state.note)
-                        .font(.system(size: size * 0.66))
-                        .foregroundStyle(JWColor.subdued)
-                    Spacer(minLength: 0)
-                    Menu {
-                        menu(state)
-                    } label: {
-                        Image(systemName: copied ? "checkmark" : "ellipsis")
-                            .font(.system(size: size * 0.8, weight: .semibold))
-                            .frame(width: 30, height: 22)
-                            .contentShape(Rectangle())
-                    }
-                    .foregroundStyle(JWColor.subdued)
-                }
+        .onTapGesture { focused = true }
+        .contextMenu {
+            if !state.text.isEmpty {
+                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = state.text }
+            }
+            if let id = questionID, state.note == "Your answer", reader.importedAnswer(id) != nil {
+                Button("Use the imported answer", systemImage: "arrow.uturn.backward") { reader.clearAnswer(id) }
             }
         }
-    }
-
-    @ViewBuilder
-    private func menu(_ state: AnswerState) -> some View {
-        if let id = questionID {
-            if state.status == .done {
-                Button("Copy", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = state.text
-                    copied = true
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_200_000_000)
-                        copied = false
-                    }
-                }
-            }
-            Button(state.status == .done ? "Edit answer" : "Write answer", systemImage: "pencil") { reader.beginEdit(id) }
-            if !reader.paragraphText(id).isEmpty {
-                Button("Use sentence from the paragraph", systemImage: "text.quote") { reader.useParagraph(id) }
-            }
-            if state.status == .done, state.note != "Imported" {
-                Button("Remove my answer", systemImage: "trash", role: .destructive) { reader.clearAnswer(id) }
-            }
-            Button("Show in answers list", systemImage: "list.bullet") { reader.focusedID = id }
-        }
-    }
-
-    private func tap(_ state: AnswerState) {
-        guard let id = questionID else { return }
-        reader.beginEdit(id)
     }
 }
 
@@ -631,51 +586,6 @@ struct AnswerText: View {
     private static func has(_ line: String, _ prefixes: [String]) -> Bool {
         let l = line.lowercased()
         return prefixes.contains { l.hasPrefix($0.lowercased()) }
-    }
-}
-
-/// Write or correct an answer by hand.
-struct AnswerEditor: View {
-    let question: String
-    let onSave: (String) -> Void
-    @State private var text: String
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var focused: Bool
-
-    init(question: String, text: String, onSave: @escaping (String) -> Void) {
-        self.question = question
-        self.onSave = onSave
-        _text = State(initialValue: text)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(question)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $text)
-                    .focused($focused)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .padding()
-            .navigationTitle("Your answer")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(text)
-                        dismiss()
-                    }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .onAppear { focused = true }
-        }
-        .presentationDetents([.medium, .large])
     }
 }
 
@@ -835,7 +745,48 @@ struct ImageViewer: View {
 
 // MARK: - References
 
-/// A verse, footnote or cited publication, drawn natively in a sheet.
+/// The body of a verse, footnote or cited publication, drawn natively.
+struct ReferenceContent: View {
+    let sheet: ReferenceSheet
+    let reader: ReaderModel
+    let base: CGFloat
+
+    var body: some View {
+        let env = PageEnv(base: base, serif: sheet.scripture, bible: sheet.scripture, pubID: reader.pub.id,
+                          bleed: 20, findTerm: nil, doc: "ref-\(sheet.id)")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if sheet.nodes.isEmpty {
+                    Text(sheet.text)
+                        .font(.system(size: base, design: sheet.scripture ? .serif : .default))
+                        .lineSpacing(base * 0.36)
+                        .foregroundStyle(JWColor.text)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(Array(sheet.nodes.enumerated()), id: \.offset) { i, n in
+                        NodeView(node: n, env: env, inherited: Inherited(), reader: reader, onImage: { _ in })
+                            .padding(.top, i == 0 ? 0 : PageLayout.gap(prev: sheet.nodes[i - 1], node: n, env: env))
+                    }
+                }
+                if let ref = sheet.open {
+                    Button {
+                        reader.openRef(ref)
+                    } label: {
+                        Label(ref.buttonTitle, systemImage: ref.isBible ? "book.closed" : "book.pages")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .padding(.top, 22)
+                }
+            }
+            .padding(20)
+        }
+    }
+}
+
+/// A verse, footnote or cited publication in a sheet (folded).
 struct ReferenceView: View {
     let sheet: ReferenceSheet
     let reader: ReaderModel
@@ -849,46 +800,49 @@ struct ReferenceView: View {
     }
 
     var body: some View {
-        let env = PageEnv(base: base, serif: sheet.scripture, bible: sheet.scripture, pubID: reader.pub.id,
-                          bleed: 20, highlights: [:], findTerm: nil, doc: "ref-\(sheet.id)")
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if let ref = sheet.open {
-                        Button {
-                            reader.openRef(ref)
-                        } label: {
-                            Label(ref.buttonTitle, systemImage: "book.pages")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .padding(.bottom, 18)
-                    }
-                    if sheet.nodes.isEmpty {
-                        Text(sheet.text)
-                            .font(.system(size: base, design: sheet.scripture ? .serif : .default))
-                            .lineSpacing(base * 0.36)
-                            .foregroundStyle(JWColor.text)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        ForEach(Array(sheet.nodes.enumerated()), id: \.offset) { i, n in
-                            NodeView(node: n, env: env, inherited: Inherited(), reader: reader, onImage: { _ in })
-                                .padding(.top, i == 0 ? 0 : PageLayout.gap(prev: sheet.nodes[i - 1], node: n, env: env))
-                        }
-                    }
+            ReferenceContent(sheet: sheet, reader: reader, base: base)
+                .navigationTitle(sheet.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 }
-                .padding(20)
-            }
-            .navigationTitle(sheet.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
         }
         .environment(\.openURL, OpenURLAction { url in reader.handleLink(url) })
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+/// The same reference beside the page (unfolded), like JW Library's study pane.
+struct StudyPane: View {
+    let sheet: ReferenceSheet
+    @ObservedObject var reader: ReaderModel
+    let base: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text(sheet.title.isEmpty ? "Reference" : sheet.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                Button {
+                    reader.reference = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            Divider()
+            ReferenceContent(sheet: sheet, reader: reader, base: base)
+                .id(sheet.id)
+        }
+        .background(Color(.secondarySystemBackground).opacity(0.4))
     }
 }

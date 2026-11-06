@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @AppStorage(Prefs.Key.highlight) private var highlight = true
     @AppStorage(Prefs.Key.textScale) private var textScale = 1.0
     @AppStorage(Prefs.Key.serif) private var serif = false
 
@@ -33,14 +32,6 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Highlight answers in the text", isOn: $highlight)
-                } header: {
-                    Text("Answers")
-                } footer: {
-                    Text("Tap an answer box to write your own answer. The sentence in each paragraph that answers the question is highlighted, and you can use it as your answer.")
-                }
-
-                Section {
                     Button {
                         importing = true
                     } label: {
@@ -61,9 +52,9 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Text("Answers file")
+                    Text("Answers")
                 } footer: {
-                    Text("Import a Perla answers file (JSON with \"question\" and \"answer\" pairs) from Files, or copy it and tap Paste. The answers appear in the matching answer boxes.")
+                    Text("Type your answers straight into the answer boxes. To fill them in advance, import a Perla answers file (JSON with \"question\" and \"answer\" pairs) from Files, or copy it and tap Paste. Anything you type replaces the imported answer.")
                 }
 
                 Section {

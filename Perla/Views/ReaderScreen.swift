@@ -21,19 +21,21 @@ struct ReaderDestination: View {
     }
 }
 
-/// The reading screen: the document drawn natively from the publication's own structure,
-/// with answers written into the answer boxes. Unfolded, an answers column sits beside the page.
+/// The reading screen: the document drawn natively from the publication's own structure, with
+/// answers typed straight into the answer boxes.
+///
+/// Folded (compact width) verses, footnotes and research open in a sheet. Unfolded (regular width)
+/// they open in a study pane on the other half of the display, so the page and the reference meet
+/// at the hinge instead of anything sitting in the fold.
 struct ReaderScreen: View {
     let href: String?
     let find: String?
     @StateObject private var reader: ReaderModel
-    @AppStorage(Prefs.Key.panel) private var panelVisible = true
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage(Prefs.Key.textScale) private var textScale = 1.0
     @AppStorage(Prefs.Key.serif) private var serif = false
-    @AppStorage(Prefs.Key.highlight) private var highlight = true
     @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17.5
-    @State private var wide = false
-    @State private var showAnswers = false
+    @State private var showQuestions = false
     @State private var showContents = false
     @State private var zoomImage: ZoomItem?
 
@@ -44,45 +46,33 @@ struct ReaderScreen: View {
     }
 
     private var base: CGFloat { baseSize * textScale }
+    private var usePane: Bool { sizeClass == .regular }
 
     var body: some View {
         GeometryReader { geo in
-            let isWide = geo.size.width >= 700
-            let panel = isWide && panelVisible
-            let panelWidth = max(320, min(420, geo.size.width * 0.36))
+            let pane = usePane && reader.reference != nil
             HStack(spacing: 0) {
-                page(width: panel ? geo.size.width - panelWidth - 1 : geo.size.width)
-                if panel {
+                page(width: pane ? geo.size.width / 2 : geo.size.width)
+                if pane, let sheet = reader.reference {
                     Divider().ignoresSafeArea(edges: .bottom)
-                    AnswersPanel(reader: reader, inSheet: false)
-                        .frame(width: panelWidth)
-                        .transition(.move(edge: .trailing))
+                    StudyPane(sheet: sheet, reader: reader, base: base)
+                        .frame(width: geo.size.width / 2 - 1)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
-            .animation(.snappy, value: panel)
-            .onAppear { wide = isWide }
-            .onChange(of: isWide) { _, value in
-                wide = value
-                if value { showAnswers = false }
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if !(wide && panelVisible) { answersButton }
+            .animation(.snappy, value: pane)
         }
         .navigationTitle(reader.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .environment(\.openURL, OpenURLAction { url in reader.handleLink(url) })
-        .sheet(isPresented: $showAnswers) {
+        .sheet(isPresented: $showQuestions) {
             AnswersPanel(reader: reader, inSheet: true)
                 .presentationDetents([.medium, .large])
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
-                // While the answers sheet is up, verses and editors open on top of it.
-                .modifier(ReaderSheets(reader: reader, base: base))
         }
         .sheet(isPresented: $showContents) { contentsSheet }
-        .modifier(ReaderSheets(reader: reader, base: base))
+        .modifier(ReaderSheets(reader: reader, base: base, usePane: usePane))
         .fullScreenCover(item: $zoomImage) { item in
             ImageViewer(url: item.url)
         }
@@ -97,13 +87,11 @@ struct ReaderScreen: View {
             reader.showBibleContents = false
             showContents = true
         }
-        .onAppear { reader.start(at: href, find: find) }
-        .onChange(of: highlight) { _, _ in reader.refreshHighlights() }
         .onChange(of: reader.focusedID) { _, id in
-            // "Show in answers list" from an answer box.
-            guard id != nil else { return }
-            if wide { panelVisible = true } else { showAnswers = true }
+            // Picking a question in the list takes you to it on the page.
+            if id != nil { showQuestions = false }
         }
+        .onAppear { reader.start(at: href, find: find) }
     }
 
     // MARK: Page
@@ -114,7 +102,7 @@ struct ReaderScreen: View {
         let column = max(240, min(width - margin * 2, 680))
         let side = max(margin, (width - column) / 2)
         let env = PageEnv(base: base, serif: serif || reader.isBible, bible: reader.isBible, pubID: reader.pub.id,
-                          bleed: side, highlights: reader.highlights, findTerm: reader.findTerm,
+                          bleed: side, findTerm: reader.findTerm,
                           doc: reader.currentFile)
         ScrollViewReader { proxy in
             ScrollView {
@@ -151,6 +139,7 @@ struct ReaderScreen: View {
                 guard let request else { return }
                 withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(request.node, anchor: .top) }
             }
+            .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(swipe)
         }
     }
@@ -214,22 +203,6 @@ struct ReaderScreen: View {
             }
     }
 
-    private var answersButton: some View {
-        Button {
-            if wide { panelVisible = true } else { showAnswers = true }
-        } label: {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 21, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 54, height: 54)
-                .background(Circle().fill(Color.accentColor))
-                .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
-        }
-        .accessibilityLabel("Answers")
-        .padding(.trailing, 18)
-        .padding(.bottom, 16)
-    }
-
     // MARK: Contents
 
     @ViewBuilder
@@ -278,45 +251,34 @@ struct ReaderScreen: View {
             }
             .accessibilityLabel(reader.isBible ? "Books and chapters" : "Contents")
 
-            if wide {
+            if !reader.questions.isEmpty {
                 Button {
-                    panelVisible.toggle()
+                    showQuestions = true
                 } label: {
-                    Image(systemName: "sidebar.trailing")
+                    Image(systemName: "checklist")
                 }
-                .accessibilityLabel("Answers column")
+                .accessibilityLabel("Questions and answers")
             }
 
             Menu {
-                Section("Text size") {
-                    Button("Larger", systemImage: "textformat.size.larger") { textScale = min(1.8, textScale + 0.1) }
-                    Button("Smaller", systemImage: "textformat.size.smaller") { textScale = max(0.75, textScale - 0.1) }
-                    if textScale != 1 {
-                        Button("Default size", systemImage: "arrow.uturn.backward") { textScale = 1 }
-                    }
-                    if !reader.isBible { Toggle("Serif font", isOn: $serif) }
+                Button("Larger text", systemImage: "textformat.size.larger") { textScale = min(1.8, textScale + 0.1) }
+                Button("Smaller text", systemImage: "textformat.size.smaller") { textScale = max(0.75, textScale - 0.1) }
+                if textScale != 1 {
+                    Button("Default size", systemImage: "arrow.uturn.backward") { textScale = 1 }
                 }
-                if !reader.questions.isEmpty {
-                    Section("Answers") {
-                        Toggle("Highlight answers", isOn: $highlight)
-                        Button("Copy questions and answers", systemImage: "doc.on.doc") {
-                            UIPasteboard.general.string = reader.exportText
-                        }
-                        Button("Print questions and answers", systemImage: "printer") {
-                            Printer.present(title: reader.title, items: reader.exportItems)
-                        }
-                    }
-                }
-                Section {
-                    Button(reader.previousTitle ?? "Previous", systemImage: "chevron.backward") { reader.previous() }
-                        .disabled(!reader.hasPrevious)
-                    Button(reader.nextTitle ?? "Next", systemImage: "chevron.forward") { reader.next() }
-                        .disabled(!reader.hasNext)
+                if !reader.isBible {
+                    Toggle("Serif font", systemImage: "character", isOn: $serif)
                 }
             } label: {
-                Image(systemName: "ellipsis")
+                Image(systemName: "textformat.size")
             }
-            .accessibilityLabel("More")
+            .accessibilityLabel("Text size")
+        }
+        ToolbarItemGroup(placement: .keyboard) {
+            Spacer()
+            Button("Done") {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
         }
     }
 }
@@ -330,20 +292,23 @@ struct TrailingIconLabelStyle: LabelStyle {
     }
 }
 
-/// Sheets for references (verses, footnotes, cited articles) and for writing an answer by hand.
-/// Attached both to the page and to the answers sheet, so they can open from either.
+/// Sheets for references (verses, footnotes, cited articles), videos and web pages. When unfolded,
+/// references go to the study pane instead of a sheet.
 struct ReaderSheets: ViewModifier {
     @ObservedObject var reader: ReaderModel
     let base: CGFloat
+    let usePane: Bool
 
-    init(reader: ReaderModel, base: CGFloat) {
+    init(reader: ReaderModel, base: CGFloat, usePane: Bool) {
         _reader = ObservedObject(wrappedValue: reader)
         self.base = base
+        self.usePane = usePane
     }
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $reader.reference) { sheet in
+            .sheet(item: Binding(get: { usePane ? nil : reader.reference },
+                                 set: { if !usePane { reader.reference = $0 } })) { sheet in
                 ReferenceView(sheet: sheet, reader: reader, base: base)
             }
             .fullScreenCover(item: $reader.media) { item in
@@ -351,12 +316,6 @@ struct ReaderSheets: ViewModifier {
             }
             .sheet(item: $reader.web) { link in
                 InAppBrowser(url: link.url).ignoresSafeArea()
-            }
-            .sheet(item: $reader.editing) { request in
-                AnswerEditor(question: reader.questions.first { $0.id == request.id }?.text ?? "",
-                             text: request.text) { text in
-                    reader.saveEdit(request.id, text: text)
-                }
             }
     }
 }
