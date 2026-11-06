@@ -133,7 +133,9 @@ final class DocParser: NSObject, XMLParserDelegate {
         self.path = path
     }
 
-    static func parse(data: Data, path: String) -> Document {
+    /// `firstID` numbers the nodes from that value, so nodes from a second file (the "-extracted"
+    /// research file) never share ids with the page they're shown on.
+    static func parse(data: Data, path: String, firstID: Int = 0) -> Document {
         let p = DocParser(path: path)
         let parser = XMLParser(data: prepared(data))
         parser.shouldProcessNamespaces = false
@@ -143,7 +145,7 @@ final class DocParser: NSObject, XMLParserDelegate {
         // Close anything left open by a parse error.
         while !p.stack.isEmpty { p.closeTop() }
         guard let root = p.root else { return .empty }
-        return finish(root)
+        return finish(root, firstID: firstID)
     }
 
     /// XMLParser only knows XML's five entities; swap common HTML ones for numeric references.
@@ -425,14 +427,21 @@ final class DocParser: NSObject, XMLParserDelegate {
 
     // MARK: Finishing
 
-    private static func finish(_ root: DocNode) -> Document {
+    private static func finish(_ root: DocNode, firstID: Int) -> Document {
         var citations: [String: Reference] = [:]
         var footnotes: [String: Reference] = [:]
         var footnoteNodes: [DocNode] = []
 
         // Pull verse texts (groupExt) and footnotes (groupFootnote) out of the page.
+        func containsPubRefs(_ node: DocNode) -> Bool {
+            var found = false
+            node.walk { if !found, $0.has("extPubRef") { found = true } }
+            return found
+        }
         func strip(_ node: DocNode) -> DocNode? {
-            if node.has("groupExt") {
+            // In "-extracted" files the whole body is a groupExt holding the research (extPubRef);
+            // only the verse boxes inside it are pulled out.
+            if node.has("groupExt"), !containsPubRefs(node) {
                 node.walk { n in
                     guard let id = n.elementID, n.has("extScrpCite") else { return }
                     citations[id] = reference(from: n)
@@ -455,7 +464,7 @@ final class DocParser: NSObject, XMLParserDelegate {
         }
         guard let cleaned = strip(root) else { return .empty }
 
-        var counter = 0
+        var counter = firstID
         var top = flatten(cleaned)
         number(&top, &counter)
         var notes = footnoteNodes.flatMap(flatten)

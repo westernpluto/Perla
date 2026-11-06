@@ -21,22 +21,19 @@ struct ReaderDestination: View {
     }
 }
 
-/// The reading screen: the document drawn natively from the publication's own structure, with
-/// answers typed straight into the answer boxes.
-///
-/// Folded (compact width) verses, footnotes and research open in a sheet. Unfolded (regular width)
-/// they open in a study pane on the other half of the display, so the page and the reference meet
-/// at the hinge instead of anything sitting in the fold.
+/// The reading screen: the page drawn natively from the publication, with answers typed straight
+/// into its answer boxes. Two buttons: Contents, and Aa for text size, side margins and font.
+/// Verses, footnotes and research open in a sheet; a whole lesson or chapter opens as a page.
 struct ReaderScreen: View {
     let href: String?
     let find: String?
     @StateObject private var reader: ReaderModel
-    @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage(Prefs.Key.textScale) private var textScale = 1.0
     @AppStorage(Prefs.Key.serif) private var serif = false
+    @AppStorage(Prefs.Key.margin) private var margin = Prefs.defaultMargin
     @ScaledMetric(relativeTo: .body) private var baseSize: CGFloat = 17.5
-    @State private var showQuestions = false
     @State private var showContents = false
+    @State private var showText = false
     @State private var zoomImage: ZoomItem?
 
     init(pub: InstalledPub, href: String?, find: String? = nil) {
@@ -46,33 +43,17 @@ struct ReaderScreen: View {
     }
 
     private var base: CGFloat { baseSize * textScale }
-    private var usePane: Bool { sizeClass == .regular }
 
     var body: some View {
         GeometryReader { geo in
-            let pane = usePane && reader.reference != nil
-            HStack(spacing: 0) {
-                page(width: pane ? geo.size.width / 2 : geo.size.width)
-                if pane, let sheet = reader.reference {
-                    Divider().ignoresSafeArea(edges: .bottom)
-                    StudyPane(sheet: sheet, reader: reader, base: base)
-                        .frame(width: geo.size.width / 2 - 1)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-            .animation(.snappy, value: pane)
+            page(width: geo.size.width)
         }
         .navigationTitle(reader.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .environment(\.openURL, OpenURLAction { url in reader.handleLink(url) })
-        .sheet(isPresented: $showQuestions) {
-            AnswersPanel(reader: reader, inSheet: true)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
         .sheet(isPresented: $showContents) { contentsSheet }
-        .modifier(ReaderSheets(reader: reader, base: base, usePane: usePane))
+        .modifier(ReaderSheets(reader: reader, base: base))
         .fullScreenCover(item: $zoomImage) { item in
             ImageViewer(url: item.url)
         }
@@ -87,10 +68,6 @@ struct ReaderScreen: View {
             reader.showBibleContents = false
             showContents = true
         }
-        .onChange(of: reader.focusedID) { _, id in
-            // Picking a question in the list takes you to it on the page.
-            if id != nil { showQuestions = false }
-        }
         .onAppear { reader.start(at: href, find: find) }
     }
 
@@ -98,12 +75,11 @@ struct ReaderScreen: View {
 
     @ViewBuilder
     private func page(width: CGFloat) -> some View {
-        let margin: CGFloat = width > 520 ? 28 : 20
-        let column = max(240, min(width - margin * 2, 680))
-        let side = max(margin, (width - column) / 2)
+        // The side margin is yours to set (Aa). Text uses the rest of the width.
+        let side = max(6, min(CGFloat(margin), width * 0.3))
+        let column = max(200, width - side * 2)
         let env = PageEnv(base: base, serif: serif || reader.isBible, bible: reader.isBible, pubID: reader.pub.id,
-                          bleed: side, findTerm: reader.findTerm,
-                          doc: reader.currentFile)
+                          bleed: side, findTerm: reader.findTerm, doc: reader.currentFile)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -117,13 +93,13 @@ struct ReaderScreen: View {
                     if !reader.doc.footnoteNodes.isEmpty {
                         footnotes(env)
                     }
-                    if !nodes.isEmpty {
+                    if !nodes.isEmpty, reader.hasPrevious || reader.hasNext {
                         footer.padding(.top, 40)
                     }
                 }
                 .frame(width: column, alignment: .leading)
                 .padding(.top, 14)
-                .padding(.bottom, 110)
+                .padding(.bottom, 48)
                 .frame(maxWidth: .infinity)
             }
             .id(reader.currentFile)
@@ -132,7 +108,7 @@ struct ReaderScreen: View {
                     ProgressView()
                 } else if reader.loadFailed && reader.doc.nodes.isEmpty {
                     ContentUnavailableView("This page couldn't be opened", systemImage: "exclamationmark.triangle",
-                                           description: Text("The file may be missing. Delete the publication in Library and download it again."))
+                                           description: Text("Delete the publication in Library and download it again."))
                 }
             }
             .onChange(of: reader.scrollRequest) { _, request in
@@ -142,6 +118,21 @@ struct ReaderScreen: View {
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(swipe)
         }
+    }
+
+    /// Swipe sideways to turn to the previous or next chapter.
+    private var swipe: some Gesture {
+        DragGesture(minimumDistance: 30, coordinateSpace: .local)
+            .onEnded { v in
+                let dx = v.translation.width
+                let dy = v.translation.height
+                guard abs(dx) > 110, abs(dx) > abs(dy) * 2.2, v.startLocation.x > 32 else { return }
+                if dx < 0 {
+                    if reader.hasNext { reader.next() }
+                } else if reader.hasPrevious {
+                    reader.previous()
+                }
+            }
     }
 
     private func openImage(_ path: String) {
@@ -188,21 +179,6 @@ struct ReaderScreen: View {
         .buttonBorderShape(.capsule)
     }
 
-    /// Swipe sideways to turn to the previous or next chapter.
-    private var swipe: some Gesture {
-        DragGesture(minimumDistance: 30, coordinateSpace: .local)
-            .onEnded { v in
-                let dx = v.translation.width
-                let dy = v.translation.height
-                guard abs(dx) > 110, abs(dx) > abs(dy) * 2.2, v.startLocation.x > 32 else { return }
-                if dx < 0 {
-                    if reader.hasNext { reader.next() }
-                } else if reader.hasPrevious {
-                    reader.previous()
-                }
-            }
-    }
-
     // MARK: Contents
 
     @ViewBuilder
@@ -231,18 +207,6 @@ struct ReaderScreen: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            VStack(spacing: 0) {
-                Text(reader.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(reader.pub.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: 420)
-        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Button {
                 showContents = true
@@ -251,28 +215,33 @@ struct ReaderScreen: View {
             }
             .accessibilityLabel(reader.isBible ? "Books and chapters" : "Contents")
 
-            if !reader.questions.isEmpty {
-                Button {
-                    showQuestions = true
-                } label: {
-                    Image(systemName: "checklist")
-                }
-                .accessibilityLabel("Questions and answers")
-            }
-
-            Menu {
-                Button("Larger text", systemImage: "textformat.size.larger") { textScale = min(1.8, textScale + 0.1) }
-                Button("Smaller text", systemImage: "textformat.size.smaller") { textScale = max(0.75, textScale - 0.1) }
-                if textScale != 1 {
-                    Button("Default size", systemImage: "arrow.uturn.backward") { textScale = 1 }
-                }
-                if !reader.isBible {
-                    Toggle("Serif font", systemImage: "character", isOn: $serif)
-                }
+            Button {
+                showText = true
             } label: {
                 Image(systemName: "textformat.size")
             }
-            .accessibilityLabel("Text size")
+            .accessibilityLabel("Text and margins")
+            .popover(isPresented: $showText) {
+                TextSettings(showSerif: !reader.isBible)
+                    .presentationCompactAdaptation(.popover)
+            }
+
+            if !reader.questions.isEmpty {
+                Menu {
+                    Button("Copy questions and answers", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = reader.exportText
+                    }
+                    ShareLink(item: reader.exportText) {
+                        Label("Share questions and answers", systemImage: "square.and.arrow.up")
+                    }
+                    Button("Print questions and answers", systemImage: "printer") {
+                        Printer.present(title: reader.title, items: reader.exportItems)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("Answers")
+            }
         }
         ToolbarItemGroup(placement: .keyboard) {
             Spacer()
@@ -280,6 +249,48 @@ struct ReaderScreen: View {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
         }
+    }
+}
+
+/// Text size, side margins and font, shared by the reader's Aa button and Settings.
+struct TextSettings: View {
+    var showSerif = true
+    @AppStorage(Prefs.Key.textScale) private var textScale = 1.0
+    @AppStorage(Prefs.Key.serif) private var serif = false
+    @AppStorage(Prefs.Key.margin) private var margin = Prefs.defaultMargin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Text size")
+                    Spacer()
+                    Text("\(Int((textScale * 100).rounded()))%").foregroundStyle(.secondary).monospacedDigit()
+                }
+                HStack(spacing: 12) {
+                    Image(systemName: "textformat.size.smaller")
+                    Slider(value: $textScale, in: 0.75...1.8, step: 0.05)
+                    Image(systemName: "textformat.size.larger")
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Side margins")
+                    Spacer()
+                    Text("\(Int(margin)) pt").foregroundStyle(.secondary).monospacedDigit()
+                }
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.right.and.line.vertical.and.arrow.left")
+                    Slider(value: $margin, in: 6...120, step: 2)
+                    Image(systemName: "arrow.left.and.line.vertical.and.arrow.right")
+                }
+            }
+            if showSerif {
+                Toggle("Serif font", isOn: $serif)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 300, idealWidth: 340)
     }
 }
 
@@ -292,23 +303,19 @@ struct TrailingIconLabelStyle: LabelStyle {
     }
 }
 
-/// Sheets for references (verses, footnotes, cited articles), videos and web pages. When unfolded,
-/// references go to the study pane instead of a sheet.
+/// Sheets for references (verses, footnotes, research), videos and web pages.
 struct ReaderSheets: ViewModifier {
     @ObservedObject var reader: ReaderModel
     let base: CGFloat
-    let usePane: Bool
 
-    init(reader: ReaderModel, base: CGFloat, usePane: Bool) {
+    init(reader: ReaderModel, base: CGFloat) {
         _reader = ObservedObject(wrappedValue: reader)
         self.base = base
-        self.usePane = usePane
     }
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: Binding(get: { usePane ? nil : reader.reference },
-                                 set: { if !usePane { reader.reference = $0 } })) { sheet in
+            .sheet(item: $reader.reference) { sheet in
                 ReferenceView(sheet: sheet, reader: reader, base: base)
             }
             .fullScreenCover(item: $reader.media) { item in

@@ -769,6 +769,17 @@ struct ReferenceContent: View {
                             .padding(.top, i == 0 ? 0 : PageLayout.gap(prev: sheet.nodes[i - 1], node: n, env: env))
                     }
                 }
+                if let song = sheet.media {
+                    Button {
+                        reader.play(song)
+                    } label: {
+                        Label("Play song", systemImage: "play.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .padding(.top, 22)
+                }
                 if let ref = sheet.open {
                     Button {
                         reader.openRef(ref)
@@ -811,38 +822,5 @@ struct ReferenceView: View {
         .environment(\.openURL, OpenURLAction { url in reader.handleLink(url) })
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-    }
-}
-
-/// The same reference beside the page (unfolded), like JW Library's study pane.
-struct StudyPane: View {
-    let sheet: ReferenceSheet
-    @ObservedObject var reader: ReaderModel
-    let base: CGFloat
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text(sheet.title.isEmpty ? "Reference" : sheet.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                Button {
-                    reader.reference = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            Divider()
-            ReferenceContent(sheet: sheet, reader: reader, base: base)
-                .id(sheet.id)
-        }
-        .background(Color(.secondarySystemBackground).opacity(0.4))
     }
 }

@@ -40,14 +40,6 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    Button {
-                        showDownloads = true
-                    } label: {
-                        Label("Get more publications", systemImage: "arrow.down.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                 }
                 .scenePadding(.horizontal)
                 .padding(.vertical, 16)

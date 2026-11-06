@@ -9,12 +9,19 @@ struct PubRef: Hashable {
     var number: Int?
     var bibleBook: Int?
     var bibleChapter: Int?
+    var bibleVerse: Int?
     var docID: String?
     var lang: String
     /// What the page called it, e.g. "lfb lesson 12".
     var label: String
 
     var isBible: Bool { bibleBook != nil }
+
+    /// The verse's anchor in the Bible EPUB ("chapter2_verse4").
+    var verseAnchor: String? {
+        guard let c = bibleChapter, let v = bibleVerse else { return nil }
+        return "chapter\(c)_verse\(v)"
+    }
 
     /// "Lesson 12" style references, shown on buttons.
     var buttonTitle: String {
@@ -314,7 +321,8 @@ enum PubResolver {
             guard let b = index.books.first(where: { $0.number == book }) else { return .contents(PubRoute(pubID: pub.id)) }
             let ch = b.chapters.first { $0.number == (ref.bibleChapter ?? 1) } ?? b.chapters.first
             guard let ch else { return .contents(PubRoute(pubID: pub.id)) }
-            return .reader(ReaderRoute(pubID: pub.id, href: ch.href))
+            let file = ch.href.components(separatedBy: "#")[0]
+            return .reader(ReaderRoute(pubID: pub.id, href: file + (ref.verseAnchor.map { "#" + $0 } ?? "")))
         }
 
         guard !ref.symbol.isEmpty else {

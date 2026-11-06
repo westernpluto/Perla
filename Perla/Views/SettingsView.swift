@@ -6,6 +6,7 @@ struct SettingsView: View {
 
     @AppStorage(Prefs.Key.textScale) private var textScale = 1.0
     @AppStorage(Prefs.Key.serif) private var serif = false
+    @AppStorage(Prefs.Key.margin) private var margin = Prefs.defaultMargin
 
     @State private var saved = AnswerStore.shared.count
     @State private var imported = ImportedAnswers.shared.count
@@ -24,8 +25,20 @@ struct SettingsView: View {
                         }
                         HStack(spacing: 12) {
                             Image(systemName: "textformat.size.smaller")
-                            Slider(value: $textScale, in: 0.8...1.8, step: 0.05)
+                            Slider(value: $textScale, in: 0.75...1.8, step: 0.05)
                             Image(systemName: "textformat.size.larger")
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Side margins")
+                            Spacer()
+                            Text("\(Int(margin)) pt").foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 12) {
+                            Image(systemName: "arrow.right.and.line.vertical.and.arrow.left")
+                            Slider(value: $margin, in: 6...120, step: 2)
+                            Image(systemName: "arrow.left.and.line.vertical.and.arrow.right")
                         }
                     }
                     Toggle("Serif font", isOn: $serif)

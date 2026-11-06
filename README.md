@@ -16,19 +16,17 @@ A native study app for iPhone (built for iPhone Duo). It downloads publications 
   - Bible: a book grid colored by section like JW Library, then a chapter grid, then the chapter. Swipe sideways or use the buttons at the end of a chapter to go to the next or previous one.
   - Other publications: a contents screen with each week's or article's picture and date.
   - Library is grouped like JW Library: Bible, meeting workbooks, Watchtower, magazines, books.
-- **Meetings tab.** Pick a week (‹ ›) and see its parts: the midweek meeting's sections in their colors with each part, the Bible reading and the Congregation Bible Study lesson, and the weekend Watchtower study article with its picture and theme. Tap any part to open it.
-- **Answers.** Type your answer straight into the answer box. An imported answers file fills the boxes in advance; anything you type replaces it. The checklist button shows all questions and answers for copying, printing or sharing.
-- **Links that work.**
-  - Bible references in the text ("Isa. 11:1-10", "Juan 3:16") show the verses, with a button to open the chapter.
-  - Verses, footnotes and research open in a sheet (folded) or in a study pane beside the page (unfolded).
-  - Book references ("lfb lesson 12", "bt chap. 5", "w24.04") open at that lesson or chapter. If the publication isn't downloaded, Perla asks before downloading it.
-  - Videos and songs play inside the app; other web links open in an in-app browser.
-  - Long-press a paragraph to copy or share it.
-- **Language.** The app is in English. Publications and answers use the language you pick in the globe menu.
-- **iPhone Duo.** Layout follows size classes, never device or orientation checks:
-  - Folded (compact width): one column, references in sheets, a Midweek / Weekend switch.
-  - Unfolded (regular width): the page and the study pane share the display 50/50 and meet at the hinge, so nothing sits in the fold; Meetings shows both meetings side by side.
-  - Standard bars, sheets and menus throughout, so the system can move them to the side column and away from the fold.
+- **Meetings tab.** This week and next week, three rows each: the midweek meeting, its Congregation Bible Study chapter, and the Watchtower study article. Tap one to open it.
+- **Answers.** Type your answer straight into the answer box. An imported answers file fills the boxes in advance; anything you type replaces it. The ⋯ button copies, shares or prints a page's questions and answers.
+- **Text.** The Aa button sets text size, side margins and the font. The same settings are in Settings.
+- **Links.**
+  - Verses open in a sheet with "Open in Bible", which goes to that verse.
+  - Research (w, th, lmd, jr…) opens in a sheet; a whole lesson or chapter, like the Bible study, opens as a page.
+  - Songs show their words with a Play button; videos play inside the app.
+  - Bible references written in the text ("Isa. 11:1-10", "Juan 3:16") and book references ("lfb lesson 12") are tappable. If the publication isn't downloaded, Perla asks first.
+  - Other web links open in an in-app browser. Long-press a paragraph to copy or share it.
+- **Language.** The app is in English. Publications use the language you pick in the globe menu.
+- **iPhone Duo.** Layout follows the available width, never device or orientation checks, so it fills both displays; standard bars, sheets and menus let the system move controls to the side and away from the fold.
 
 ## Answers file
 

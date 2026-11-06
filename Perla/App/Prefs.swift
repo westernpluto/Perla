@@ -42,7 +42,11 @@ enum Prefs {
         static let lang = "pubLanguage"
         static let textScale = "textScale"
         static let serif = "serifFont"
+        static let margin = "sideMargin"
     }
+
+    /// Space on each side of the text, in points.
+    static let defaultMargin = 16.0
 
     private static var d: UserDefaults { .standard }
 

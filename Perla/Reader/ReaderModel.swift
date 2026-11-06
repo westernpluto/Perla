@@ -33,6 +33,8 @@ struct ReferenceSheet: Identifiable {
     let scripture: Bool
     /// The whole lesson, chapter or article this reference comes from, when it can be opened.
     var open: PubRef? = nil
+    /// A song's recording, played from the sheet.
+    var media: MediaItem? = nil
 }
 
 /// One open document (a workbook week, an article, a Bible chapter…), its questions and their answers.
@@ -70,6 +72,9 @@ final class ReaderModel: ObservableObject {
 
     private var found: [String: FoundQuestion] = [:]
     private var extracted: [String: Reference] = [:]
+    /// Verses and footnotes quoted inside the research file, which has its own numbering.
+    private var extractedCitations: [String: Reference] = [:]
+    private var extractedFootnotes: [String: Reference] = [:]
     private var nodeByID: [Int: DocNode] = [:]
     private var topLevelOf: [Int: Int] = [:]
     private var loadToken = UUID()
@@ -121,11 +126,15 @@ final class ReaderModel: ObservableObject {
 
     func open(_ href: String, find: String? = nil) {
         let parts = href.components(separatedBy: "#")
-        let file = parts[0].isEmpty ? currentFile : parts[0]
+        let file = parts[0].isEmpty ? currentFile.components(separatedBy: "#")[0] : parts[0]
         let fragment = parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil
+        // A research reference ("…-extracted.xhtml#pcitation13", such as the Bible study chapter)
+        // opens as a page of its own.
+        let researchPage = file.contains("-extracted") && (fragment?.hasPrefix("pcitation") ?? false)
+        let pageID = researchPage ? file + "#" + (fragment ?? "") : file
 
-        if file == currentFile, !doc.nodes.isEmpty {
-            if let fragment, let id = nodeID(forAnchor: fragment) { requestScroll(to: id) }
+        if pageID == currentFile, !doc.nodes.isEmpty {
+            if !researchPage, let fragment, let id = nodeID(forAnchor: fragment) { requestScroll(to: id) }
             if let find { applyFind(find) }
             return
         }
@@ -134,31 +143,40 @@ final class ReaderModel: ObservableObject {
         let token = UUID()
         loadToken = token
         let mainURL = root.appendingPathComponent(file)
-        let extractedFile = file.replacingOccurrences(of: ".xhtml", with: "-extracted.xhtml")
+        let extractedFile = researchPage ? file : file.replacingOccurrences(of: ".xhtml", with: "-extracted.xhtml")
         let extractedURL = root.appendingPathComponent(extractedFile)
         Task {
-            let result = await Task.detached(priority: .userInitiated) { () -> (Document, [String: Reference]) in
-                guard let data = try? Data(contentsOf: mainURL) else { return (Document.empty, [:]) }
-                let main = DocParser.parse(data: data, path: file)
-                var refs: [String: Reference] = [:]
-                if let extra = try? Data(contentsOf: extractedURL) {
-                    refs = DocParser.parse(data: extra, path: extractedFile).extractedReferences()
+            let result = await Task.detached(priority: .userInitiated) { () -> (Document, Document, String?) in
+                var extra = Document.empty
+                if let data = try? Data(contentsOf: extractedURL) {
+                    extra = DocParser.parse(data: data, path: extractedFile, firstID: 1_000_000)
                 }
-                return (main, refs)
+                if researchPage, let fragment {
+                    guard let ref = extra.extractedReferences()[fragment] else { return (Document.empty, extra, nil) }
+                    let page = Document(nodes: ref.nodes, footnoteNodes: [], citations: extra.citations,
+                                        footnotes: extra.footnotes, title: ref.title)
+                    return (page, extra, ref.title)
+                }
+                guard let data = try? Data(contentsOf: mainURL) else { return (Document.empty, extra, nil) }
+                return (DocParser.parse(data: data, path: file), extra, nil)
             }.value
             guard token == self.loadToken else { return }
             if result.0.nodes.isEmpty {
                 self.loading = false
                 self.loadFailed = true
-                if self.currentFile.isEmpty { self.currentFile = file }
+                if self.currentFile.isEmpty { self.currentFile = pageID }
                 return
             }
             self.loadFailed = false
-            self.show(file: file, doc: result.0, extracted: result.1, fragment: fragment, find: find)
+            self.extractedCitations = result.1.citations
+            self.extractedFootnotes = result.1.footnotes
+            self.show(file: pageID, doc: result.0, extracted: result.1.extractedReferences(),
+                      fragment: researchPage ? nil : fragment, find: find, title: result.2)
         }
     }
 
-    private func show(file: String, doc newDoc: Document, extracted refs: [String: Reference], fragment: String?, find: String?) {
+    private func show(file: String, doc newDoc: Document, extracted refs: [String: Reference], fragment: String?,
+                      find: String?, title pageTitle: String? = nil) {
         answers = [:]
         focusedID = nil
         found = [:]
@@ -167,7 +185,7 @@ final class ReaderModel: ObservableObject {
         doc = newDoc
         extracted = refs
         loading = false
-        title = titles[file] ?? (newDoc.title.isEmpty ? pub.title : newDoc.title.capitalized)
+        title = pageTitle.map(Self.researchTitle) ?? titles[file] ?? (newDoc.title.isEmpty ? pub.title : newDoc.title.capitalized)
 
         var byID: [Int: DocNode] = [:]
         var top: [Int: Int] = [:]
@@ -294,55 +312,77 @@ final class ReaderModel: ObservableObject {
         let parts = target.components(separatedBy: "#")
         let file = parts[0]
         let fragment = parts.count > 1 ? parts[1] : ""
-        let named = Linkifier.pubRef(in: text, lang: pub.lang)
+        // Links inside research shown in a sheet point into the research file, which numbers its
+        // verses and footnotes on its own. On a research page, that file is the page itself.
+        let inResearch = file.contains("-extracted") && !currentFile.hasPrefix(file)
+        let citations = inResearch ? extractedCitations : doc.citations
+        let footnotes = inResearch ? extractedFootnotes : doc.footnotes
 
-        if fragment.hasPrefix("citation"), let ref = doc.citations[fragment] {
-            reference = ReferenceSheet(title: ref.title, text: ref.text, nodes: ref.nodes, scripture: true)
-        } else if fragment.hasPrefix("footnote"), let ref = doc.footnotes[fragment] {
+        if fragment.hasPrefix("citation"), let ref = citations[fragment] {
+            reference = ReferenceSheet(title: ref.title, text: ref.text, nodes: ref.nodes, scripture: true,
+                                       open: bibleRef(ref.title))
+        } else if fragment.hasPrefix("footnote"), let ref = footnotes[fragment] {
             reference = ReferenceSheet(title: ref.title.isEmpty ? "Footnote" : ref.title, text: ref.text,
                                        nodes: ref.nodes, scripture: false)
         } else if fragment.hasPrefix("pcitation"), let ref = extracted[fragment] {
-            // Research and the Bible study: show the part that's included, with a way into the whole lesson.
-            let open = named ?? Linkifier.pubRef(in: ref.title, lang: pub.lang)
-            reference = ReferenceSheet(title: ref.title.isEmpty ? text : ref.title, text: ref.text, nodes: ref.nodes,
-                                       scripture: false, open: open)
+            showResearch(ref, file: file, anchor: fragment)
         } else if file.contains("biblechapternav") || file.contains("biblebooknav") || file.contains("bibleversenav") {
             // Bible navigation pages are replaced by the app's own book and chapter grids.
             showBibleContents = true
-        } else if let named, file.isEmpty || file.contains("-extracted") || !exists(file) {
-            // A lesson or article from another publication: download it and open it.
-            reference = nil
-            openRef(named)
-        } else if !file.isEmpty, exists(file) {
+        } else if !file.isEmpty, exists(file), !file.contains("-extracted") {
             reference = nil
             open(target)
-        } else if let ref = extractedByText(text) {
-            reference = ReferenceSheet(title: ref.title.isEmpty ? text : ref.title, text: ref.text, nodes: ref.nodes,
-                                       scripture: false, open: named)
+        } else if let named = Linkifier.pubRef(in: text, lang: pub.lang) {
+            reference = nil
+            openRef(named)
         } else {
             reference = ReferenceSheet(title: text.isEmpty ? "Link" : text,
                                        text: "This part isn't included in the downloaded publication.",
-                                       nodes: [], scripture: false, open: named)
+                                       nodes: [], scripture: false)
         }
     }
 
     @Published var showBibleContents = false
 
-    private func exists(_ file: String) -> Bool {
-        !file.isEmpty && FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path)
+    /// "Jer. 52:1, 2" → that chapter of the Bible, scrolled to the verse.
+    private func bibleRef(_ title: String) -> PubRef? {
+        guard let m = BibleNames.matches(in: title).first else { return nil }
+        var ref = PubRef(symbol: "nwt", bibleBook: m.book, bibleChapter: m.chapter, lang: pub.lang, label: title)
+        ref.bibleVerse = m.verse
+        return ref
     }
 
-    /// An included reference whose title matches the link text, when the link's anchor doesn't.
-    private func extractedByText(_ text: String) -> Reference? {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard t.count >= 3 else { return nil }
-        return extracted.values.first { $0.title.lowercased().hasPrefix(t) || t.hasPrefix($0.title.lowercased()) }
+    /// "***wcg pp. 78-81 “I Will Certainly Go With You”***" → "wcg pp. 78-81 “I Will Certainly Go With You”"
+    nonisolated static func researchTitle(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "*", with: "").replacingOccurrences(of: "^", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Research the page points to. A song shows its words with a play button; a whole lesson or
+    /// chapter (like the Congregation Bible Study) opens as a page; anything shorter opens in a sheet.
+    private func showResearch(_ ref: Reference, file: String, anchor: String) {
+        let title = Self.researchTitle(ref.title)
+        let words = title.lowercased().split(separator: " ")
+        if words.count >= 3, words[0] == "sjj", let number = Int(words[2]) {
+            let song = MediaItem(source: .pubMedia(["pub": "sjjm", "track": String(number)]), lang: pub.lang,
+                                 title: title)
+            reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false, media: song)
+        } else if ref.text.count > 2500 {
+            afterSheet { $0.pushRoute = ReaderRoute(pubID: $0.pub.id, href: file + "#" + anchor) }
+        } else {
+            reference = ReferenceSheet(title: title, text: ref.text, nodes: ref.nodes, scripture: false)
+        }
+    }
+
+    private func exists(_ file: String) -> Bool {
+        !file.isEmpty && FileManager.default.fileExists(atPath: root.appendingPathComponent(file).path)
     }
 
     /// A Bible reference: the verses in a sheet (or the side pane when unfolded), like JW Library.
     /// Without a verse, or without a downloaded Bible, the chapter opens instead.
     func showBible(book: Int, chapter: Int, verse: Int?, verseEnd: Int?, label: String) {
-        let ref = PubRef(symbol: "nwt", bibleBook: book, bibleChapter: chapter, lang: pub.lang, label: label)
+        var ref = PubRef(symbol: "nwt", bibleBook: book, bibleChapter: chapter, lang: pub.lang, label: label)
+        ref.bibleVerse = verse
         let library = LibraryStore.shared
         let biblePub = isBible ? pub : library.installed(symbol: "nwt", issue: "", lang: pub.lang)
         guard let verse, let biblePub else {
@@ -373,12 +413,17 @@ final class ReaderModel: ObservableObject {
         }
     }
 
+    /// Plays a song or video, closing the sheet it was started from.
+    func play(_ item: MediaItem) {
+        afterSheet { $0.media = item }
+    }
+
     /// Opens a lesson, chapter, article or Bible chapter from another publication.
     func openRef(_ ref: PubRef) {
         if ref.isBible, isBible, let bible, let book = bible.books.first(where: { $0.number == ref.bibleBook }),
            let ch = book.chapters.first(where: { $0.number == (ref.bibleChapter ?? 1) }) ?? book.chapters.first {
             reference = nil
-            open(ch.href)
+            open(ch.href.components(separatedBy: "#")[0] + (ref.verseAnchor.map { "#" + $0 } ?? ""))
             return
         }
         if ref.symbol == pub.symbol, ref.issue == pub.issue, let number = ref.number,
@@ -408,7 +453,9 @@ final class ReaderModel: ObservableObject {
     /// open in the app, and other web pages open in an in-app browser.
     func handleExternal(_ url: URL, text: String) -> OpenURLAction.Result {
         let scheme = url.scheme?.lowercased() ?? ""
-        if let item = LinkParser.media(url, lang: pub.lang, title: text.isEmpty ? "Video" : text) {
+        // "Play the VIDEO" says nothing about the video; use a plain title for those.
+        let videoTitle = text.isEmpty || text.lowercased().contains("video") ? "Video" : text
+        if let item = LinkParser.media(url, lang: pub.lang, title: videoTitle) {
             afterSheet { $0.media = item }
             return .handled
         }
