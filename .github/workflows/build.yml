@@ -1,0 +1,81 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest stable Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -viE 'beta|release_candidate|_rc' | sort -V | tail -1 || true)
+          if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project Perla.xcodeproj \
+            -scheme Perla \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || BUILD_FAILED=1
+          grep -E -A4 "error:" build.log | head -200 || true
+          grep -E "BUILD (SUCCEEDED|FAILED)" build.log || true
+          if [ -n "$BUILD_FAILED" ]; then echo "::error::Build failed - see the errors above or the build-log artifact"; exit 1; fi
+          # Stop here if the app binary is missing, so a broken IPA is never uploaded.
+          test -f build/Build/Products/Release-iphoneos/Perla.app/Perla
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Perla.app Payload/
+          zip -qry Perla.ipa Payload
+          unzip -l Perla.ipa | grep -q "Payload/Perla.app/Perla$"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Perla-ipa
+          path: Perla.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: build.log
+
+  # Keep only the newest build: delete every earlier run (and the IPA attached to it).
+  cleanup:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete earlier runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT: ${{ github.run_id }}
+        run: |
+          gh api --paginate "repos/$REPO/actions/runs?per_page=100" \
+            -q ".workflow_runs[] | select(.id != $CURRENT and .status == \"completed\") | .id" |
+          while read -r id; do
+            gh api -X DELETE "repos/$REPO/actions/runs/$id" && echo "Deleted run $id"
+          done
