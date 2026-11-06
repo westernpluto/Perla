@@ -41,3 +41,25 @@ enum Printer {
         controller.present(animated: true, completionHandler: nil)
     }
 }
+
+extension View {
+    /// The Files picker for a Perla answers file. `done` gets a short message for the person.
+    func answersImporter(isPresented: Binding<Bool>, done: @escaping (String) -> Void) -> some View {
+        fileImporter(isPresented: isPresented, allowedContentTypes: [.json, .plainText, .text]) { result in
+            switch result {
+            case .success(let url):
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let data = try Data(contentsOf: url)
+                    let n = try ImportedAnswers.shared.importFile(data)
+                    done(n == 0 ? "No answers found in that file." : "Imported \(n) answers.")
+                } catch {
+                    done("That file couldn't be read as a Perla answers file.")
+                }
+            case .failure(let error):
+                done(error.localizedDescription)
+            }
+        }
+    }
+}
