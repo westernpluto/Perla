@@ -77,7 +77,7 @@ struct SettingsView: View {
                     }
                     .disabled(saved == 0)
                 } footer: {
-                    Text("For personal use. Publications are downloaded from jw.org.")
+                    Text("Perla \(Self.version) · For personal use. Publications are downloaded from jw.org.")
                 }
             }
             .navigationTitle("Settings")
@@ -106,5 +106,13 @@ struct SettingsView: View {
         } catch {
             importMessage = "The clipboard doesn't contain a Perla answers file."
         }
+    }
+
+    /// "1.0 (build 18)", from the app's own Info.plist.
+    static var version: String {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(v) (build \(b))"
     }
 }

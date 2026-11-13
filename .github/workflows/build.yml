@@ -35,6 +35,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             build > build.log 2>&1 || BUILD_FAILED=1
           grep -E -A4 "error:" build.log | head -200 || true
           grep -E "BUILD (SUCCEEDED|FAILED)" build.log || true
@@ -44,15 +45,23 @@ jobs:
 
       - name: Package unsigned IPA
         run: |
+          APP=build/Build/Products/Release-iphoneos/Perla.app
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
+          test "$BUILD" = "${{ github.run_number }}"
+          echo "Perla $VERSION (build $BUILD), $(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")"
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/Perla.app Payload/
-          zip -qry Perla.ipa Payload
-          unzip -l Perla.ipa | grep -q "Payload/Perla.app/Perla$"
+          cp -R "$APP" Payload/
+          IPA="Perla-$VERSION-build$BUILD.ipa"
+          zip -qry "$IPA" Payload
+          unzip -l "$IPA" | grep -q "Payload/Perla.app/Perla$"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "ARTIFACT=Perla-$VERSION-build$BUILD" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Perla-ipa
-          path: Perla.ipa
+          name: ${{ env.ARTIFACT }}
+          path: ${{ env.IPA }}
 
       - uses: actions/upload-artifact@v4
         if: failure()

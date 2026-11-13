@@ -1,6 +1,6 @@
 name: Perla
 options:
-  bundleIdPrefix: dev.perla
+  bundleIdPrefix: com.perla
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
@@ -24,7 +24,7 @@ targets:
     scheme: {}
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.perla.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.perla.app
         PRODUCT_NAME: Perla
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES

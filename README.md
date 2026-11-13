@@ -45,7 +45,7 @@ Questions are matched by their text (numbers, accents and punctuation don't matt
 ## Build
 
 1. Push to `main` (or upload this folder to the repo root).
-2. GitHub Actions builds `Perla-ipa`. If the build fails, the run turns red and a `build-log` file is attached. After a successful build on `main`, earlier runs are deleted so only the newest IPA is listed.
+2. GitHub Actions builds the IPA. Each build is numbered with the run number: the artifact and file are named like `Perla-1.0-build18.ipa`, and Settings shows "Perla 1.0 (build 18)". The bundle ID is `com.perla.app`. If the build fails, the run turns red and a `build-log` file is attached. After a successful build on `main`, earlier runs are deleted so only the newest IPA is listed.
 3. Install `Perla.ipa` with Feather.
 
 ## Notes
