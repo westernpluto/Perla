@@ -91,7 +91,7 @@ struct NodeStyle: Hashable {
     var hasVisual: Bool {
         background != nil || borderTop != nil || borderBottom != nil || borderLeading != nil
             || icon != nil || indent > 0 || paddingLeading > 0 || paddingTop > 0 || paddingBottom > 0
-            || fontScale != nil || color != nil || centered
+            || fontScale != nil || color != nil || centered || bleed
     }
 
     static func parse(_ classes: [String]) -> NodeStyle {

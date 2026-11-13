@@ -25,12 +25,15 @@ struct Inherited: Equatable {
     var scale: CGFloat = 1
     var color: String?
     var centered = false
+    /// Inside a "bleed to the edge" container: pictures span the full width.
+    var bleed = false
 
     func applying(_ s: NodeStyle) -> Inherited {
         var c = self
         if let f = s.fontScale { c.scale *= f }
         if let col = s.color { c.color = col }
         if s.centered { c.centered = true }
+        if s.bleed { c.bleed = true }
         return c
     }
 }
@@ -43,6 +46,10 @@ enum PageLayout {
     static func gap(prev: DocNode?, node: DocNode, env: PageEnv, childGap: CGFloat? = nil) -> CGFloat {
         let b = env.base
         guard let prev else { return node.style.marginTop ?? 0 }
+        // A picture's label strip continues the picture right above it.
+        if node.backgroundOnTop, prev.kind == .image || prev.tag == "figure" || prev.children.contains(where: { $0.kind == .image }) {
+            return 0
+        }
         if let m = node.style.marginTop { return max(m, prev.style.marginBottom ?? 0) }
         if let m = prev.style.marginBottom { return m }
         if let childGap { return childGap }
@@ -136,10 +143,12 @@ struct NodeView: View, Equatable {
                         TextBlock(node: node, env: env, inherited: inherited, showIcon: false)
                     }
                 } else if let marker = node.listMarker {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    // Hanging numbers and bullets, 1.5 em wide like the publication.
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
                         Text(marker)
-                            .font(.system(size: size, weight: .semibold))
+                            .font(.system(size: size, weight: .bold))
                             .foregroundStyle(JWColor.text)
+                            .frame(minWidth: size * 1.5, alignment: .leading)
                         TextBlock(node: node, env: env, inherited: inherited, showIcon: true)
                     }
                 } else {
@@ -160,10 +169,12 @@ struct NodeView: View, Equatable {
     @ViewBuilder
     private var imageNode: some View {
         if let path = node.image {
-            PageImage(path: path, root: reader.root, alt: node.alt, small: node.style.widthFraction != nil)
+            PageImage(path: path, root: reader.root, alt: node.alt, small: node.style.widthFraction != nil,
+                      square: inherited.bleed)
                 .contentShape(Rectangle())
                 .onTapGesture { onImage(path) }
                 .padding(.leading, node.style.indent)
+                .padding(.horizontal, inherited.bleed ? -env.bleed : 0)
         }
     }
 }
@@ -187,20 +198,26 @@ struct ContainerBlock: View {
     var body: some View {
         let inner = inherited.applying(node.style)
         if let picture = node.backgroundImage, node.backgroundOnTop {
-            // "Picture A": the picture across the top, its label below.
-            VStack(alignment: .leading, spacing: 8) {
-                PageImage(path: picture, root: reader.root, alt: "")
-                    .contentShape(Rectangle())
-                    .onTapGesture { onImage(picture) }
-                content(inner)
-            }
-            .padding(.leading, node.style.indent)
+            // The picture across the top at full width, the panel color below it, and the content
+            // (the orange "A") on top — "background-size: 100% auto; position: top".
+            content(inner)
+                .padding(.vertical, max(node.style.paddingTop, env.base * 0.4))
+                .padding(.horizontal, node.style.bleed ? 0 : 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .top) {
+                    ZStack(alignment: .top) {
+                        (node.style.background.flatMap(JWColor.background) ?? .clear)
+                        BackgroundPicture(path: picture, root: reader.root, fill: false)
+                    }
+                    .padding(.horizontal, node.style.bleed ? -env.bleed : 0)
+                }
         } else if let picture = node.backgroundImage {
-            // Questions printed over a light illustration: keep print colors so they stay readable.
+            // Questions printed over a light illustration that stretches to the whole panel
+            // ("background-size: 100% 100%"). Print colors keep them readable.
             content(inner)
                 .modifier(Decoration(style: node.style, env: env, centered: inner.centered))
                 .background {
-                    BackgroundPicture(path: picture, root: reader.root)
+                    BackgroundPicture(path: picture, root: reader.root, fill: true)
                         .padding(.horizontal, node.style.bleed ? -env.bleed : 0)
                 }
                 .environment(\.colorScheme, .light)
@@ -455,6 +472,13 @@ enum PageText {
             if r.italic { font = font.italic() }
             a.font = font
             if let color { a.foregroundColor = color }
+            if let bg = r.background.flatMap(JWColor.background) {
+                // A label such as the orange "A" on a picture.
+                a = AttributedString("\u{2009}" + r.text + "\u{2009}")
+                a.font = font
+                a.foregroundColor = color ?? .white
+                a.backgroundColor = bg
+            }
             if offset != 0 { a.baselineOffset = offset }
             if let link = r.link, let url = ReaderModel.linkURL(link, text: r.text) {
                 a.link = url
@@ -641,20 +665,28 @@ enum ImageSizes {
 }
 
 /// A picture from the publication, scaled to the width of the column.
-/// A picture filling the space behind an element.
+/// A picture behind an element: stretched to the element (`fill`), or across its top at full width.
 struct BackgroundPicture: View {
     let path: String
     let root: URL
+    var fill = true
     @State private var image: UIImage?
 
     var body: some View {
-        Color(.white)
-            .overlay {
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
+        Group {
+            if let image {
+                if fill {
+                    Image(uiImage: image).resizable()
+                } else {
+                    Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: .infinity, alignment: .top)
                 }
+            } else {
+                Color.clear
             }
-            .clipped()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .clipped()
             .task(id: path) {
                 let url = root.appendingPathComponent(path)
                 image = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: url.path) }.value
@@ -667,13 +699,16 @@ struct PageImage: View {
     let root: URL
     let alt: String
     let small: Bool
+    /// Edge-to-edge pictures have square corners.
+    var square = false
     @State private var image: UIImage?
 
-    init(path: String, root: URL, alt: String, small: Bool = false) {
+    init(path: String, root: URL, alt: String, small: Bool = false, square: Bool = false) {
         self.path = path
         self.root = root
         self.alt = alt
         self.small = small
+        self.square = square
     }
 
     var body: some View {
@@ -693,7 +728,7 @@ struct PageImage: View {
             }
         }
         .frame(maxWidth: tiny ? min(120, (px?.width ?? 240) / 2) : .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: tiny ? 0 : 3, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: tiny || square ? 0 : 3, style: .continuous))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel(alt)
         .task(id: path) {

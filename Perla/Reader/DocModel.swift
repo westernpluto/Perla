@@ -17,10 +17,15 @@ struct InlineRun: Hashable {
     var link: String?
     /// A JW icon (music note, gem…) drawn inline before the text that follows.
     var icon: String?
+    /// A colored label behind the text, like the orange "A" on a picture.
+    var background: String?
+    /// The hanging number of a question ("4."), drawn to the left of the text.
+    var bullet = false
 
     func sameStyle(_ o: InlineRun) -> Bool {
         icon == nil && o.icon == nil && bold == o.bold && italic == o.italic && sup == o.sup && parNum == o.parNum
             && chapterNum == o.chapterNum && normalWeight == o.normalWeight && color == o.color && link == o.link
+            && background == o.background && bullet == o.bullet
     }
 
     /// A "*" or letter that points to a footnote.
@@ -308,6 +313,8 @@ final class DocParser: NSObject, XMLParserDelegate {
             if i.classes.contains("w_ch") || i.classes.contains("chapterNo") { run.chapterNum = true }
             if i.classes.contains("du-fontWeight--normal") { run.normalWeight = true }
             if let c = i.classes.first(where: { $0.hasPrefix("du-color--") }) { run.color = String(c.dropFirst(10)) }
+            if let c = i.classes.first(where: { $0.hasPrefix("du-bgColor--") }) { run.background = String(c.dropFirst(12)) }
+            if i.classes.contains("txtSrcBullet") { run.bullet = true }
         }
         if let last = f.runs.last, last.sameStyle(run) {
             f.runs[f.runs.count - 1].text += s
@@ -324,6 +331,7 @@ final class DocParser: NSObject, XMLParserDelegate {
         n.runs = runs
         n.plain = runs.map(\.text).joined()
         n.anchors = f.anchors
+        Self.hangBullet(&n)
         f.children.append(n)
     }
 
@@ -348,12 +356,31 @@ final class DocParser: NSObject, XMLParserDelegate {
             node.kind = .text
             node.runs = runs
             node.plain = runs.map(\.text).joined()
+            Self.hangBullet(&node)
         } else {
             if f.runs.contains(where: { !$0.text.allSatisfy(\.isWhitespace) }) { flushRuns(of: f) }
             node.children = f.children
         }
         if f.tag == "li" { node.listMarker = listMarker() }
         return node
+    }
+
+    /// "4. ¿A qué se referían…?" → the "4." hangs to the left, as the publication's stylesheet does.
+    private static func hangBullet(_ node: inout DocNode) {
+        guard node.runs.first?.bullet == true else { return }
+        var marker = ""
+        while let first = node.runs.first, first.bullet {
+            marker += first.text
+            node.runs.removeFirst()
+        }
+        while var first = node.runs.first, first.text.first?.isWhitespace == true {
+            first.text.removeFirst()
+            if first.text.isEmpty { node.runs.removeFirst() } else { node.runs[0] = first }
+        }
+        let m = marker.trimmingCharacters(in: .whitespaces)
+        guard !m.isEmpty, !node.runs.isEmpty else { return }
+        node.listMarker = m
+        node.plain = node.runs.map(\.text).joined()
     }
 
     private var inCaption: Bool {
