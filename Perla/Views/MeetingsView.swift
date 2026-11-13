@@ -176,7 +176,6 @@ final class MeetingsModel: ObservableObject {
 struct MeetingsView: View {
     @StateObject private var model = MeetingsModel()
     @AppStorage(Prefs.Key.lang) private var lang = "E"
-    @State private var picking = false
 
     var body: some View {
         List {
@@ -209,22 +208,15 @@ struct MeetingsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Previous week", systemImage: "chevron.backward") { model.move(by: -1) }
-                Button("Pick a week", systemImage: "list.bullet.rectangle") { picking = true }
+                WeekMenu(selected: model.week) { model.go(to: $0) }
                 Button("Next week", systemImage: "chevron.forward") { model.move(by: 1) }
                 SettingsButton()
             }
         }
-        .sheet(isPresented: $picking) { weekPicker }
         .refreshable { await model.load(force: true) }
         .task(id: "\(lang)|\(model.week.timeIntervalSince1970)") { await model.load() }
     }
 
-    private var weekPicker: some View {
-        WeekList(selected: model.week) { week in
-            model.go(to: week)
-            picking = false
-        }
-    }
 
     /// "Nov 9 – 15" (or "This week")
     private var weekTitle: String {
@@ -301,71 +293,76 @@ struct SettingsButton: View {
     }
 }
 
-/// Every week from half a year back to a year ahead, grouped by month and opened at the week shown.
-/// One tap picks a week.
-struct WeekList: View {
+/// Picks a week from a menu that opens beside its toolbar button (on iPhone Duo, beside the side
+/// column, under your thumb): the weeks around the one shown, then earlier and later weeks by month.
+struct WeekMenu: View {
     let selected: Date
     let pick: (Date) -> Void
-    @Environment(\.dismiss) private var dismiss
 
-    private var weeks: [Date] {
-        let cal = Issues.calendar
-        let now = Issues.weekStart(Date())
-        return (-26...52).compactMap { cal.date(byAdding: .day, value: 7 * $0, to: now) }
-    }
+    private let cal = Issues.calendar
+    private var thisWeek: Date { Issues.weekStart(Date()) }
 
-    private var months: [(title: String, weeks: [Date])] {
-        let f = DateFormatter()
-        f.locale = AppLanguage.locale
-        f.setLocalizedDateFormatFromTemplate("MMMMyyyy")
-        var out: [(String, [Date])] = []
-        for w in weeks {
-            let title = f.string(from: w).capitalized(with: AppLanguage.locale)
-            if out.last?.0 == title { out[out.count - 1].1.append(w) } else { out.append((title, [w])) }
-        }
-        return out.map { (title: $0.0, weeks: $0.1) }
+    private func week(_ offset: Int, from base: Date) -> Date {
+        cal.date(byAdding: .day, value: 7 * offset, to: base) ?? base
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                List {
-                    ForEach(months, id: \.title) { month in
-                        Section(month.title) {
-                            ForEach(month.weeks, id: \.self) { w in
-                                Button {
-                                    pick(w)
-                                } label: {
-                                    HStack {
-                                        Text(range(w)).foregroundStyle(.primary)
-                                        if Issues.calendar.isDate(w, inSameDayAs: Issues.weekStart(Date())) {
-                                            Text("This week").font(.caption).foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        if Issues.calendar.isDate(w, inSameDayAs: selected) {
-                                            Image(systemName: "checkmark").foregroundStyle(.tint)
-                                        }
-                                    }
-                                }
-                                .id(w)
-                            }
-                        }
-                    }
-                }
-                .onAppear { proxy.scrollTo(selected, anchor: .center) }
+        Menu {
+            if !cal.isDate(selected, inSameDayAs: thisWeek) {
+                Button(L("This week"), systemImage: "calendar.badge.clock") { pick(thisWeek) }
             }
-            .navigationTitle("Weeks")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("This week") { pick(Date()) } }
+            Section {
+                ForEach(-2...5, id: \.self) { i in
+                    let w = week(i, from: selected)
+                    row(w)
+                }
+            }
+            Section {
+                Menu(L("Earlier"), systemImage: "chevron.backward.2") {
+                    months(from: week(-3, from: selected), backward: true)
+                }
+                Menu(L("Later"), systemImage: "chevron.forward.2") {
+                    months(from: week(6, from: selected), backward: false)
+                }
+            }
+        } label: {
+            Image(systemName: "calendar")
+        }
+        .accessibilityLabel(L("Pick a week"))
+    }
+
+    @ViewBuilder
+    private func row(_ w: Date) -> some View {
+        let title = range(w) + (cal.isDate(w, inSameDayAs: thisWeek) ? " · " + L("This week") : "")
+        if cal.isDate(w, inSameDayAs: selected) {
+            Button(title, systemImage: "checkmark") { pick(w) }
+        } else {
+            Button(title) { pick(w) }
+        }
+    }
+
+    /// Six months of weeks, one submenu per month.
+    @ViewBuilder
+    private func months(from start: Date, backward: Bool) -> some View {
+        let weeks = (0..<26).map { week(backward ? -$0 : $0, from: start) }
+        let groups = Dictionary(grouping: weeks) { monthTitle($0) }
+        let order = weeks.map(monthTitle).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        ForEach(order, id: \.self) { m in
+            Menu(m) {
+                ForEach((groups[m] ?? []).sorted(), id: \.self) { w in row(w) }
             }
         }
-        .presentationDetents([.medium, .large])
+    }
+
+    private func monthTitle(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = AppLanguage.locale
+        f.setLocalizedDateFormatFromTemplate("MMMMyyyy")
+        return f.string(from: d).capitalized(with: AppLanguage.locale)
     }
 
     private func range(_ start: Date) -> String {
-        let end = Issues.calendar.date(byAdding: .day, value: 6, to: start) ?? start
+        let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
         let f = DateIntervalFormatter()
         f.locale = AppLanguage.locale
         f.dateTemplate = "MMMd"

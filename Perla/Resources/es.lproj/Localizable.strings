@@ -126,3 +126,5 @@
 "Resolution" = "Resolución";
 "Remove %@ download" = "Eliminar descarga de %@";
 "Download %@" = "Descargar %@";
+"Earlier" = "Anteriores";
+"Later" = "Posteriores";
