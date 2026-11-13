@@ -55,6 +55,8 @@ struct MediaItem: Identifiable, Hashable {
         /// jw.org download service query (pub, issue, track, docid).
         case pubMedia([String: String])
         case file(URL)
+        /// Files already known (from the video catalog).
+        case files([MediaFile])
     }
 
     let id = UUID()
@@ -505,24 +507,54 @@ enum PubResolver {
 }
 
 /// Finds the playable file behind a video or song link.
+/// One playable file of a video or song, at one resolution.
+struct MediaFile: Hashable, Identifiable {
+    let url: URL
+    /// Frame height (720 for "720p"); 0 for audio.
+    let height: Int
+    let size: Int64
+    var id: URL { url }
+    var label: String { height > 0 ? "\(height)p" : "Audio" }
+    var isAudio: Bool { height == 0 || url.pathExtension.lowercased() == "mp3" }
+}
+
+/// Finds the files behind a video or song link, at every resolution jw.org offers.
 enum MediaResolver {
     enum Failure: LocalizedError {
         case notFound
         var errorDescription: String? { L("This video isn't available to play.") }
     }
 
-    static func resolve(_ item: MediaItem) async throws -> URL {
+    /// Every playable file, smallest first.
+    static func files(_ item: MediaItem) async throws -> [MediaFile] {
+        var out: [MediaFile]
         switch item.source {
         case .file(let url):
-            return url
+            out = [MediaFile(url: url, height: url.pathExtension.lowercased() == "mp3" ? 0 : 720, size: 0)]
+        case .files(let list):
+            out = list
         case .key(let key):
-            return try await mediator(key: key, lang: item.lang)
+            out = try await mediator(key: key, lang: item.lang)
         case .pubMedia(let params):
-            for format in ["MP4", "MP3"] {
-                if let url = try? await pubMedia(params: params, format: format, lang: item.lang) { return url }
+            out = []
+            for format in ["MP4", "MP3"] where out.isEmpty {
+                out = (try? await pubMedia(params: params, format: format, lang: item.lang)) ?? []
             }
-            throw Failure.notFound
         }
+        // 3GP files don't play in AVPlayer.
+        out = out.filter { $0.url.pathExtension.lowercased() != "3gp" }.sorted { $0.height < $1.height }
+        guard !out.isEmpty else { throw Failure.notFound }
+        return out
+    }
+
+    /// The file to stream first: 720p when there is one, otherwise the closest below it.
+    static func preferred(_ files: [MediaFile]) -> MediaFile? {
+        files.last { $0.height <= 720 } ?? files.first
+    }
+
+    static func resolve(_ item: MediaItem) async throws -> URL {
+        guard let f = preferred(try await files(item)) else { throw Failure.notFound }
+        return f.url
     }
 
     private static func json(_ url: URL) async throws -> [String: Any] {
@@ -534,38 +566,40 @@ enum MediaResolver {
         return obj
     }
 
-    /// Picks the file closest to 720p.
-    private static func best(_ files: [(url: String, height: Int)]) -> URL? {
-        let sorted = files.sorted { a, b in
-            let da = a.height <= 720 ? 720 - a.height : 10_000 + a.height
-            let db = b.height <= 720 ? 720 - b.height : 10_000 + b.height
-            return da < db
-        }
-        return sorted.lazy.compactMap { URL(string: $0.url) }.first
-    }
-
-    private static func height(_ label: Any?) -> Int {
+    static func height(_ label: Any?) -> Int {
         if let n = label as? Int { return n }
         let s = (label as? String) ?? ""
         return Int(s.filter(\.isNumber)) ?? 0
     }
 
-    private static func mediator(key: String, lang: String) async throws -> URL {
-        let escaped = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-        guard let url = URL(string: "https://b.jw-cdn.org/apis/mediator/v1/media-items/\(lang)/\(escaped)?clientType=www")
-        else { throw Failure.notFound }
-        let obj = try await json(url)
-        guard let media = (obj["media"] as? [[String: Any]])?.first,
-              let files = media["files"] as? [[String: Any]] else { throw Failure.notFound }
-        let list = files.compactMap { f -> (url: String, height: Int)? in
-            guard let u = f["progressiveDownloadURL"] as? String else { return nil }
-            return (u, (f["frameHeight"] as? Int) ?? height(f["label"]))
+    /// Files from a jw.org media item ("files" with "progressiveDownloadURL").
+    static func files(fromMediator list: [[String: Any]]) -> [MediaFile] {
+        list.compactMap { f in
+            guard let s = f["progressiveDownloadURL"] as? String, let u = URL(string: s) else { return nil }
+            let h = (f["frameHeight"] as? Int).flatMap { $0 > 0 ? $0 : nil } ?? height(f["label"])
+            return MediaFile(url: u, height: h, size: (f["filesize"] as? NSNumber)?.int64Value ?? 0)
         }
-        guard let pick = best(list) else { throw Failure.notFound }
-        return pick
     }
 
-    private static func pubMedia(params: [String: String], format: String, lang: String) async throws -> URL {
+    /// The media service wants the language-free key ("pub-ljf_11_VIDEO", not "pub-ljf_S_11_VIDEO").
+    static func languageFree(_ key: String, lang: String) -> String {
+        key.replacingOccurrences(of: "_\(lang)_", with: "_")
+    }
+
+    private static func mediator(key: String, lang: String) async throws -> [MediaFile] {
+        for k in [languageFree(key, lang: lang), key] {
+            let escaped = k.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? k
+            guard let url = URL(string: "https://b.jw-cdn.org/apis/mediator/v1/media-items/\(lang)/\(escaped)?clientType=www"),
+                  let obj = try? await json(url),
+                  let media = (obj["media"] as? [[String: Any]])?.first,
+                  let raw = media["files"] as? [[String: Any]] else { continue }
+            let out = files(fromMediator: raw)
+            if !out.isEmpty { return out }
+        }
+        throw Failure.notFound
+    }
+
+    private static func pubMedia(params: [String: String], format: String, lang: String) async throws -> [MediaFile] {
         var c = URLComponents(string: "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS")!
         var items = [
             URLQueryItem(name: "output", value: "json"),
@@ -589,11 +623,12 @@ enum MediaResolver {
                 guard let track else { return true }
                 return (item["track"] as? Int) == track
             }
-            let files = (matching.isEmpty ? list : matching).compactMap { item -> (url: String, height: Int)? in
-                guard let file = item["file"] as? [String: Any], let u = file["url"] as? String else { return nil }
-                return (u, (item["frameHeight"] as? Int) ?? height(item["label"]))
+            let out = (matching.isEmpty ? list : matching).compactMap { item -> MediaFile? in
+                guard let file = item["file"] as? [String: Any], let s = file["url"] as? String, let u = URL(string: s) else { return nil }
+                let h = format == "MP3" ? 0 : ((item["frameHeight"] as? Int).flatMap { $0 > 0 ? $0 : nil } ?? height(item["label"]))
+                return MediaFile(url: u, height: h, size: (item["filesize"] as? NSNumber)?.int64Value ?? 0)
             }
-            if let pick = best(files) { return pick }
+            if !out.isEmpty { return out }
         }
         throw Failure.notFound
     }

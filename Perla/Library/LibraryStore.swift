@@ -41,6 +41,8 @@ final class LibraryStore: ObservableObject {
     let root: URL
     private let indexURL: URL
     private var inflight: [String: Task<InstalledPub, Error>] = [:]
+    /// Download progress (0…1) by publication id, while downloading.
+    @Published private(set) var progress: [String: Double] = [:]
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -64,6 +66,13 @@ final class LibraryStore: ObservableObject {
         downloading.contains(InstalledPub.makeID(symbol: symbol, issue: issue, lang: lang))
     }
 
+    /// How far a download has come (0…1), or nil when it isn't downloading.
+    func progress(symbol: String, issue: String, lang: String) -> Double? {
+        let id = InstalledPub.makeID(symbol: symbol, issue: issue, lang: lang)
+        guard downloading.contains(id) else { return nil }
+        return progress[id] ?? 0
+    }
+
     func coverImage(_ pub: InstalledPub) -> UIImage? {
         guard let c = pub.cover else { return nil }
         return UIImage(contentsOfFile: folder(pub).appendingPathComponent(c).path)
@@ -78,8 +87,12 @@ final class LibraryStore: ObservableObject {
 
         let task = Task<InstalledPub, Error> {
             let link = try await PubMedia.epubLink(symbol: symbol, issue: issue, lang: lang)
-            let (tmp, response) = try await URLSession.shared.download(from: link.url)
-            guard (response as? HTTPURLResponse)?.statusCode ?? 200 == 200 else {
+            let tmp: URL
+            do {
+                tmp = try await Downloader.shared.download(link.url) { fraction in
+                    Task { @MainActor in self.progress[id] = fraction }
+                }
+            } catch {
                 throw PubMedia.Failure.network(L("The download didn't finish. Try again."))
             }
             return try await Self.install(file: tmp, id: id, symbol: symbol, issue: issue, lang: lang,
@@ -90,6 +103,7 @@ final class LibraryStore: ObservableObject {
         defer {
             inflight[id] = nil
             downloading.remove(id)
+            progress[id] = nil
         }
         do {
             let pub = try await task.value

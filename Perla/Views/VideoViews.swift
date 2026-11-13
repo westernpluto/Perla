@@ -15,6 +15,8 @@ enum VideoCatalog {
         let title: String
         let duration: String
         let image: URL?
+        /// Every resolution, straight from the catalog.
+        let files: [MediaFile]
         var id: String { key }
     }
 
@@ -53,9 +55,12 @@ enum VideoCatalog {
             page.subcategories.append(Category(key: k, name: name, image: image(sub["images"] as? [String: Any])))
         }
         for m in category["media"] as? [[String: Any]] ?? [] {
-            guard let k = m["naturalKey"] as? String, let title = m["title"] as? String else { continue }
+            // The media service wants the language-free key ("pub-ljf_11_VIDEO").
+            guard let k = (m["languageAgnosticNaturalKey"] as? String) ?? (m["naturalKey"] as? String),
+                  let title = m["title"] as? String else { continue }
             page.videos.append(Video(key: k, title: title, duration: m["durationFormattedMinSec"] as? String ?? "",
-                                     image: image(m["images"] as? [String: Any])))
+                                     image: image(m["images"] as? [String: Any]),
+                                     files: MediaResolver.files(fromMediator: m["files"] as? [[String: Any]] ?? [])))
         }
         return page
     }
@@ -90,7 +95,8 @@ struct VideoCategoryView: View {
                             LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                                 ForEach(page.videos) { v in
                                     Button {
-                                        playing = MediaItem(source: .key(v.key), lang: lang, title: v.title)
+                                        playing = MediaItem(source: v.files.isEmpty ? .key(v.key) : .files(v.files),
+                                                            lang: lang, title: v.title)
                                     } label: {
                                         VideoTile(title: v.title, detail: v.duration, image: v.image, isCategory: false)
                                     }

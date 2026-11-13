@@ -115,3 +115,14 @@
 "The clipboard doesn't contain a Perla answers file." = "Die Zwischenablage enthält keine Perla-Antwortdatei.";
 "The videos couldn't be loaded. Check the connection and try again." = "Die Videos konnten nicht geladen werden. Prüfe die Verbindung und versuch es erneut.";
 "No videos" = "Keine Videos";
+"Highlight" = "Markieren";
+"Remove highlight" = "Markierung entfernen";
+"Yellow" = "Gelb";
+"Green" = "Grün";
+"Blue" = "Blau";
+"Pink" = "Rosa";
+"Orange" = "Orange";
+"Weeks" = "Wochen";
+"Resolution" = "Auflösung";
+"Remove %@ download" = "Download %@ entfernen";
+"Download %@" = "%@ laden";

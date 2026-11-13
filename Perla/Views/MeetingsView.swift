@@ -209,33 +209,21 @@ struct MeetingsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Previous week", systemImage: "chevron.backward") { model.move(by: -1) }
-                Button("Pick a week", systemImage: "calendar") { picking = true }
-                    .popover(isPresented: $picking) { weekPicker }
+                Button("Pick a week", systemImage: "list.bullet.rectangle") { picking = true }
                 Button("Next week", systemImage: "chevron.forward") { model.move(by: 1) }
                 SettingsButton()
             }
         }
+        .sheet(isPresented: $picking) { weekPicker }
         .refreshable { await model.load(force: true) }
         .task(id: "\(lang)|\(model.week.timeIntervalSince1970)") { await model.load() }
     }
 
     private var weekPicker: some View {
-        VStack(spacing: 12) {
-            DatePicker("Week", selection: Binding(get: { model.week }, set: { model.go(to: $0); picking = false }),
-                       displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .labelsHidden()
-            if !model.isThisWeek {
-                Button("This week") {
-                    model.go(to: Date())
-                    picking = false
-                }
-                .buttonStyle(.bordered)
-            }
+        WeekList(selected: model.week) { week in
+            model.go(to: week)
+            picking = false
         }
-        .padding()
-        .frame(minWidth: 320)
-        .presentationCompactAdaptation(.popover)
     }
 
     /// "Nov 9 – 15" (or "This week")
@@ -310,5 +298,77 @@ struct SettingsButton: View {
         }
         .accessibilityLabel("Settings")
         .sheet(isPresented: $showing) { SettingsView() }
+    }
+}
+
+/// Every week from half a year back to a year ahead, grouped by month and opened at the week shown.
+/// One tap picks a week.
+struct WeekList: View {
+    let selected: Date
+    let pick: (Date) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var weeks: [Date] {
+        let cal = Issues.calendar
+        let now = Issues.weekStart(Date())
+        return (-26...52).compactMap { cal.date(byAdding: .day, value: 7 * $0, to: now) }
+    }
+
+    private var months: [(title: String, weeks: [Date])] {
+        let f = DateFormatter()
+        f.locale = AppLanguage.locale
+        f.setLocalizedDateFormatFromTemplate("MMMMyyyy")
+        var out: [(String, [Date])] = []
+        for w in weeks {
+            let title = f.string(from: w).capitalized(with: AppLanguage.locale)
+            if out.last?.0 == title { out[out.count - 1].1.append(w) } else { out.append((title, [w])) }
+        }
+        return out.map { (title: $0.0, weeks: $0.1) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(months, id: \.title) { month in
+                        Section(month.title) {
+                            ForEach(month.weeks, id: \.self) { w in
+                                Button {
+                                    pick(w)
+                                } label: {
+                                    HStack {
+                                        Text(range(w)).foregroundStyle(.primary)
+                                        if Issues.calendar.isDate(w, inSameDayAs: Issues.weekStart(Date())) {
+                                            Text("This week").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        if Issues.calendar.isDate(w, inSameDayAs: selected) {
+                                            Image(systemName: "checkmark").foregroundStyle(.tint)
+                                        }
+                                    }
+                                }
+                                .id(w)
+                            }
+                        }
+                    }
+                }
+                .onAppear { proxy.scrollTo(selected, anchor: .center) }
+            }
+            .navigationTitle("Weeks")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("This week") { pick(Date()) } }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func range(_ start: Date) -> String {
+        let end = Issues.calendar.date(byAdding: .day, value: 6, to: start) ?? start
+        let f = DateIntervalFormatter()
+        f.locale = AppLanguage.locale
+        f.dateTemplate = "MMMd"
+        return f.string(from: start, to: end)
     }
 }

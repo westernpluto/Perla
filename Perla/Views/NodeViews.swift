@@ -355,158 +355,23 @@ struct TextBlock: View {
         }
     }
 
+    @ObservedObject private var highlights = HighlightStore.shared
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
         let size = Self.size(node, env: env, inherited: inherited)
         let heading = PageLayout.isHeading(node)
         let centered = inherited.centered || node.style.centered
-        let iconFont = showIcon ? node.style.icon.flatMap { _ in JWIcons.shared.font(pubID: env.pubID, size: size * 1.15) } : nil
-        let attributed = PageText.attributed(node, size: size, env: env, heading: heading,
-                                             iconFont: iconFont, showIcon: showIcon)
         let colorName = node.style.color ?? inherited.color
-        let color = colorName.flatMap(JWColor.color)
-            ?? ((node.role == .caption || node.role == .note) ? JWColor.subdued : JWColor.text)
-
-        textView(attributed, symbol: showIcon && iconFont == nil ? node.style.icon : nil)
-            .foregroundStyle(color)
-            .tint(JWColor.link)
-            .lineSpacing(size * (heading ? 0.14 : 0.36))
-            .multilineTextAlignment(centered ? .center : .leading)
+        let color = colorName.flatMap(JWColor.uiColor)
+            ?? UIColor((node.role == .caption || node.role == .note) ? JWColor.subdued : JWColor.text)
+        // Paragraphs on a page can be highlighted; text shown in a sheet can only be selected.
+        let key = env.doc.hasPrefix("ref-") ? nil : HighlightStore.key(pubID: env.pubID, doc: env.doc, node: node.id)
+        let text = PageText.build(node, size: size, env: env, heading: heading, showIcon: showIcon, baseColor: color,
+                                  centered: centered, highlights: key.flatMap { highlights.marks[$0] } ?? [])
+        RichText(text: text, highlightKey: key) { url in openURL(url) }
             .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
-            .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, env.bible && node.has("sz") ? env.base * 1.6 : 0)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = node.plain }
-                ShareLink(item: node.plain)
-            }
-    }
-
-    private func textView(_ a: AttributedString, symbol: String?) -> Text {
-        if let symbol {
-            return Text("\(Image(systemName: JWIcons.symbol(symbol)))  \(Text(a))")
-        }
-        return Text(a)
-    }
-}
-
-/// Builds the styled text of a block: bold and italic runs, paragraph and verse numbers,
-/// footnote marks, links, icons and search matches.
-@MainActor
-enum PageText {
-    static func attributed(_ node: DocNode, size: CGFloat, env: PageEnv, heading: Bool,
-                           iconFont: Font?, showIcon: Bool) -> AttributedString {
-        let design: Font.Design = env.serif && !heading ? .serif : .default
-        let blockBold = heading && !node.style.normalWeight
-        var out = AttributedString()
-
-        if showIcon, let icon = node.style.icon, let iconFont, let glyph = JWIcons.shared.glyph(icon, pubID: env.pubID) {
-            var g = AttributedString(glyph)
-            g.font = iconFont
-            out += g
-            var space = AttributedString("  ")
-            space.font = .system(size: size)
-            out += space
-        }
-
-        if env.bible, node.has("sb"), !node.runs.contains(where: \.chapterNum) {
-            // Bible paragraphs start with an indent, as in JW Library.
-            var indent = AttributedString("\u{2003}\u{2003}")
-            indent.font = .system(size: size, design: design)
-            out += indent
-        }
-
-        var runs = node.runs
-        if node.role == .note {
-            // Footnotes: the "^" back-link becomes a plain bold label ("Sal. 23:2") or disappears.
-            var i = 0
-            while i < runs.count, let l = runs[i].link, l.contains("source") {
-                var t = runs[i].text.replacingOccurrences(of: "^", with: "")
-                t = t.trimmingCharacters(in: .whitespaces)
-                if t.isEmpty {
-                    runs.remove(at: i)
-                } else {
-                    runs[i].text = t + " "
-                    runs[i].link = nil
-                    runs[i].bold = true
-                    i += 1
-                }
-            }
-        }
-
-        for r in runs {
-            if let icon = r.icon {
-                if let f = JWIcons.shared.font(pubID: env.pubID, size: size * 1.1),
-                   let glyph = JWIcons.shared.glyph(icon, pubID: env.pubID) {
-                    var g = AttributedString(glyph + " ")
-                    g.font = f
-                    out += g
-                }
-                continue
-            }
-            var a = AttributedString(r.text)
-            var weight: Font.Weight = (blockBold || r.bold) && !r.normalWeight ? .bold : .regular
-            if heading && node.style.normalWeight && !r.bold { weight = .regular }
-            var runSize = size
-            var runDesign = design
-            var color: Color? = r.color.flatMap(JWColor.color)
-            var offset: CGFloat = 0
-
-            if r.chapterNum {
-                runSize = size * 2.1
-                weight = .bold
-                runDesign = .default
-                color = JWColor.verse
-            } else if r.parNum {
-                weight = .bold
-                runSize = size * 0.86
-                runDesign = .default
-                color = JWColor.subdued
-            } else if r.isNoteMark {
-                runSize = size * 0.7
-                offset = size * 0.38
-                runDesign = .default
-            } else if r.sup && (env.bible || r.bold) {
-                // Verse numbers: bold, blue and on the line, like JW Library.
-                weight = .bold
-                runSize = size * 0.8
-                runDesign = .default
-                color = JWColor.verse
-            } else if r.sup {
-                runSize = size * 0.7
-                offset = size * 0.35
-            }
-
-            var font = Font.system(size: runSize, weight: weight, design: runDesign)
-            if r.italic { font = font.italic() }
-            a.font = font
-            if let color { a.foregroundColor = color }
-            if let bg = r.background.flatMap(JWColor.background) {
-                // A label such as the orange "A" on a picture.
-                a = AttributedString("\u{2009}" + r.text + "\u{2009}")
-                a.font = font
-                a.foregroundColor = color ?? .white
-                a.backgroundColor = bg
-            }
-            if offset != 0 { a.baselineOffset = offset }
-            if let link = r.link, let url = ReaderModel.linkURL(link, text: r.text) {
-                a.link = url
-            } else if env.verseLinks, r.chapterNum || (r.sup && !r.isNoteMark),
-                      let v = r.chapterNum ? 1 : Int(r.text.trimmingCharacters(in: .whitespaces)),
-                      let url = URL(string: "perla://verse?v=\(v)") {
-                a.link = url
-                if env.notedVerses.contains(v) { a.underlineStyle = .single }
-            }
-            out += a
-        }
-
-        if let term = env.findTerm, !term.isEmpty {
-            var start = out.startIndex
-            while start < out.endIndex,
-                  let r = out[start..<out.endIndex].range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) {
-                out[r].backgroundColor = Color.accentColor.opacity(0.35)
-                start = r.upperBound
-            }
-        }
-        return out
     }
 }
 
@@ -685,8 +550,12 @@ struct BackgroundPicture: View {
                 if fill {
                     Image(uiImage: image).resizable()
                 } else {
-                    Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                    // Full width, natural height, cut off at the panel's bottom ("100% auto, top").
+                    GeometryReader { geo in
+                        Image(uiImage: image).resizable()
+                            .frame(width: geo.size.width,
+                                   height: geo.size.width * image.size.height / max(1, image.size.width))
+                    }
                 }
             } else {
                 Color.clear

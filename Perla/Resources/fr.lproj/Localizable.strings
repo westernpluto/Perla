@@ -115,3 +115,14 @@
 "The clipboard doesn't contain a Perla answers file." = "Le presse-papiers ne contient pas de fichier de réponses Perla.";
 "The videos couldn't be loaded. Check the connection and try again." = "Impossible de charger les vidéos. Vérifiez la connexion et réessayez.";
 "No videos" = "Aucune vidéo";
+"Highlight" = "Surligner";
+"Remove highlight" = "Retirer le surlignage";
+"Yellow" = "Jaune";
+"Green" = "Vert";
+"Blue" = "Bleu";
+"Pink" = "Rose";
+"Orange" = "Orange";
+"Weeks" = "Semaines";
+"Resolution" = "Résolution";
+"Remove %@ download" = "Supprimer le téléchargement %@";
+"Download %@" = "Télécharger %@";

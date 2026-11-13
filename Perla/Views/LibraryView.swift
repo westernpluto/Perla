@@ -115,30 +115,32 @@ struct CatalogGrid: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: lang) {
-            guard names else { return }
-            if await CatalogNames.load(symbols: entries.map(\.symbol), lang: lang) { namesVersion += 1 }
-        }
     }
 
     @ViewBuilder
     private func tile(_ entry: Entry) -> some View {
         let caption = entry.issue.isEmpty ? nil : entry.title
-        let name = names ? (CatalogNames.name(symbol: entry.symbol, lang: lang) ?? entry.title) : entry.title
         let _ = namesVersion
-        if let pub = library.installed(symbol: entry.file, issue: entry.issue, lang: lang) {
-            NavigationLink(value: PubRoute(pubID: pub.id)) {
-                CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption,
-                            image: library.coverImage(pub),
-                            downloaded: true, downloading: false)
+        let name = names ? (CatalogNames.name(symbol: entry.symbol, lang: lang) ?? entry.title) : entry.title
+        let cover = CatalogNames.cover(symbol: entry.symbol, issue: entry.issue, lang: lang)
+        Group {
+            if let pub = library.installed(symbol: entry.file, issue: entry.issue, lang: lang) {
+                NavigationLink(value: PubRoute(pubID: pub.id)) {
+                    CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption,
+                                image: entry.symbol == entry.file ? library.coverImage(pub) : nil, cover: cover,
+                                downloaded: true, downloading: false)
+                }
+            } else {
+                NavigationLink(value: PubRef(symbol: entry.file, issue: entry.issue, lang: lang, label: name)) {
+                    CatalogTile(title: name, caption: caption, image: nil, cover: cover, downloaded: false,
+                                downloading: library.isDownloading(symbol: entry.file, issue: entry.issue, lang: lang),
+                                progress: library.progress(symbol: entry.file, issue: entry.issue, lang: lang))
+                }
             }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink(value: PubRef(symbol: entry.file, issue: entry.issue, lang: lang, label: name)) {
-                CatalogTile(title: name, caption: caption, image: nil, downloaded: false,
-                            downloading: library.isDownloading(symbol: entry.file, issue: entry.issue, lang: lang))
-            }
-            .buttonStyle(.plain)
+        }
+        .buttonStyle(.plain)
+        .task(id: entry.id + lang) {
+            if await CatalogNames.load(symbol: entry.symbol, issue: entry.issue, lang: lang) { namesVersion += 1 }
         }
     }
 }
@@ -148,33 +150,45 @@ struct CatalogTile: View {
     /// Shown under the tile instead of the title (issue dates).
     let caption: String?
     let image: UIImage?
+    var cover: URL? = nil
     let downloaded: Bool
     let downloading: Bool
+    var progress: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color(.secondarySystemBackground))
                     .overlay {
                         if let image {
                             Image(uiImage: image).resizable().scaledToFill()
+                        } else if let cover {
+                            AsyncImage(url: cover) { img in
+                                img.resizable().scaledToFill()
+                            } placeholder: {
+                                placeholder
+                            }
                         } else {
-                            Text(title)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(10)
+                            placeholder
                         }
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                if downloading {
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                if let progress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .padding(8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(6)
+                } else if downloading {
                     ProgressView().padding(8)
                 } else if !downloaded {
-                    Image(systemName: "icloud.and.arrow.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tint)
-                        .padding(8)
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.accentColor)
+                        .shadow(radius: 2)
+                        .padding(6)
                 }
             }
             .aspectRatio(0.72, contentMode: .fit)
@@ -184,7 +198,14 @@ struct CatalogTile: View {
                 .lineLimit(2)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityHint(downloaded ? "" : "Not downloaded")
+    }
+
+    private var placeholder: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(10)
     }
 }
 

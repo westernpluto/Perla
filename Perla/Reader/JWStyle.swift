@@ -25,10 +25,23 @@ enum JWColor {
     ]
 
     static func color(_ name: String) -> Color? {
+        uiColor(name).map { Color($0) }
+    }
+
+    /// The same colors for UIKit text (light and dark).
+    static func uiColor(_ name: String) -> UIColor? {
         guard let pair = table[name] else { return nil }
-        return Color(UIColor { trait in
+        return UIColor { trait in
             UIColor(hex: trait.userInterfaceStyle == .dark ? pair.dark : pair.light)
-        })
+        }
+    }
+
+    static func uiBackground(_ name: String) -> UIColor? {
+        switch name {
+        case "white": return .systemBackground
+        case "black": return UIColor(hex: 0x1C1C1E)
+        default: return uiColor(name)
+        }
     }
 
     /// A background color. White and black panels in print become the page's own background in dark
@@ -213,6 +226,11 @@ final class JWIcons {
     func font(pubID: String, size: CGFloat) -> Font? {
         guard let name = fontNames[pubID], !name.isEmpty else { return nil }
         return .custom(name, fixedSize: size)
+    }
+
+    func uiFont(pubID: String, size: CGFloat) -> UIFont? {
+        guard let name = fontNames[pubID], !name.isEmpty else { return nil }
+        return UIFont(name: name, size: size)
     }
 
     func glyph(_ icon: String, pubID: String) -> String? {

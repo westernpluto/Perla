@@ -115,3 +115,14 @@
 "The clipboard doesn't contain a Perla answers file." = "A área de transferência não contém um arquivo de respostas do Perla.";
 "The videos couldn't be loaded. Check the connection and try again." = "Não foi possível carregar os vídeos. Verifique a conexão e tente de novo.";
 "No videos" = "Nenhum vídeo";
+"Highlight" = "Destacar";
+"Remove highlight" = "Remover destaque";
+"Yellow" = "Amarelo";
+"Green" = "Verde";
+"Blue" = "Azul";
+"Pink" = "Rosa";
+"Orange" = "Laranja";
+"Weeks" = "Semanas";
+"Resolution" = "Resolução";
+"Remove %@ download" = "Remover download de %@";
+"Download %@" = "Baixar %@";

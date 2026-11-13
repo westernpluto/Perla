@@ -115,3 +115,14 @@
 "The clipboard doesn't contain a Perla answers file." = "Gli appunti non contengono un file di risposte di Perla.";
 "The videos couldn't be loaded. Check the connection and try again." = "Impossibile caricare i video. Controlla la connessione e riprova.";
 "No videos" = "Nessun video";
+"Highlight" = "Evidenzia";
+"Remove highlight" = "Rimuovi evidenziazione";
+"Yellow" = "Giallo";
+"Green" = "Verde";
+"Blue" = "Blu";
+"Pink" = "Rosa";
+"Orange" = "Arancione";
+"Weeks" = "Settimane";
+"Resolution" = "Risoluzione";
+"Remove %@ download" = "Rimuovi download %@";
+"Download %@" = "Scarica %@";

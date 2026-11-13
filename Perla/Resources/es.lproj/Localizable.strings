@@ -115,3 +115,14 @@
 "The clipboard doesn't contain a Perla answers file." = "El portapapeles no contiene un archivo de respuestas de Perla.";
 "The videos couldn't be loaded. Check the connection and try again." = "No se pudieron cargar los videos. Revise la conexión e inténtelo de nuevo.";
 "No videos" = "No hay videos";
+"Highlight" = "Resaltar";
+"Remove highlight" = "Quitar resaltado";
+"Yellow" = "Amarillo";
+"Green" = "Verde";
+"Blue" = "Azul";
+"Pink" = "Rosa";
+"Orange" = "Naranja";
+"Weeks" = "Semanas";
+"Resolution" = "Resolución";
+"Remove %@ download" = "Eliminar descarga de %@";
+"Download %@" = "Descargar %@";
