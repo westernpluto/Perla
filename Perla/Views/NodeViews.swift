@@ -842,14 +842,7 @@ struct ReferenceContent: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-            if let page = sheet.page {
-                Button {
-                    reader.readAsPage(page)
-                } label: {
-                    Label("Read as a page", systemImage: "doc.text").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-            }
+            // The full publication first (it has the pictures); the text-only copy as a fallback.
             if let ref = sheet.open {
                 Button {
                     reader.openRef(ref)
@@ -857,6 +850,14 @@ struct ReferenceContent: View {
                     Label(ref.openTitle, systemImage: ref.isBible ? "book.closed" : "books.vertical")
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            if let page = sheet.page {
+                Button {
+                    reader.readAsPage(page)
+                } label: {
+                    Label("Read as a page", systemImage: "doc.text").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
             }

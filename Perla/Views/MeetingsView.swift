@@ -5,6 +5,9 @@ struct MeetingItem: Hashable {
     let route: ReaderRoute
     let title: String
     let detail: String
+    /// The full publication this part comes from, opened instead of the workbook's text-only copy
+    /// (the Bible study chapter's pictures are only in the book itself).
+    var source: PubRef? = nil
 }
 
 /// What one week's meetings need: the workbook week, its Bible study lesson and the Watchtower article.
@@ -39,18 +42,21 @@ enum MeetingReader {
                     let what = next.text.replacingOccurrences(of: "^\\([^)]*\\)\\s*", with: "", options: .regularExpression)
                         .trimmingCharacters(in: CharacterSet(charactersIn: " ."))
                     var chapterTitle = ""
+                    var source: PubRef?
                     let parts = target.components(separatedBy: "#")
                     if parts.count == 2,
                        let data = try? Data(contentsOf: root.appendingPathComponent(parts[0])),
                        let ref = DocParser.parse(data: data, path: parts[0]).extractedReferences()[parts[1]] {
                         let t = ReaderModel.researchTitle(ref.title)
+                        source = Linkifier.research(title: t, lang: pub.lang)
                         if let q = t.firstIndex(where: { $0 == "“" || $0 == "\"" || $0 == "«" }) {
                             chapterTitle = String(t[q...])
                         }
                     }
                     study = MeetingItem(route: ReaderRoute(pubID: pub.id, href: target),
                                         title: L("Congregation Bible Study"),
-                                        detail: [what, chapterTitle].filter { !$0.isEmpty }.joined(separator: " · "))
+                                        detail: [what, chapterTitle].filter { !$0.isEmpty }.joined(separator: " · "),
+                                        source: source)
                     break
                 }
                 break
@@ -178,8 +184,14 @@ struct MeetingsView: View {
                 row(model.current.midweek, icon: "person.2", fallback: L("Workbook"),
                     note: model.current.midweekNote)
                 if let study = model.current.bibleStudy {
-                    NavigationLink(value: study.route) {
-                        MeetingRowLabel(icon: "book", title: study.title, detail: study.detail, loading: false)
+                    if let source = study.source {
+                        NavigationLink(value: source) {
+                            MeetingRowLabel(icon: "book", title: study.title, detail: study.detail, loading: false)
+                        }
+                    } else {
+                        NavigationLink(value: study.route) {
+                            MeetingRowLabel(icon: "book", title: study.title, detail: study.detail, loading: false)
+                        }
                     }
                 }
             } header: {
