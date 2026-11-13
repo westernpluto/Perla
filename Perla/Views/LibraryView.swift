@@ -39,7 +39,6 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { LanguageMenu() }
             ToolbarItem(placement: .topBarTrailing) { SettingsButton() }
         }
     }
@@ -61,14 +60,15 @@ struct LibrarySectionDestination: View {
         switch section {
         case .catalog(let category):
             CatalogGrid(title: category.title,
-                        entries: CatalogItem.items(in: category).map { .init(symbol: $0.symbol, issue: "", title: $0.title) })
+                        entries: CatalogItem.items(in: category).map { .init(symbol: $0.symbol, issue: "", title: $0.title) },
+                        names: true)
         case .workbooks:
-            CatalogGrid(title: "Meeting Workbooks",
+            CatalogGrid(title: L("Meeting Workbooks"),
                         entries: Issues.workbookIssues().map {
                             .init(symbol: "mwb", issue: $0, title: Issues.label(symbol: "mwb", issue: $0))
                         })
         case .watchtower:
-            CatalogGrid(title: "The Watchtower",
+            CatalogGrid(title: L("The Watchtower"),
                         entries: Issues.watchtowerIssues().map {
                             .init(symbol: "w", issue: $0, title: Issues.label(symbol: "w", issue: $0))
                         })
@@ -90,10 +90,15 @@ struct CatalogGrid: View {
         let issue: String
         let title: String
         var id: String { symbol + "_" + issue }
+        /// What gets downloaded (the Study Edition entry opens the 2013 Bible).
+        var file: String { symbol == "nwtsty" ? "nwt" : symbol }
     }
 
     let title: String
     let entries: [Entry]
+    /// Show each publication's name in the publication language (fetched from jw.org).
+    var names = false
+    @State private var namesVersion = 0
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(Prefs.Key.lang) private var lang = "E"
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 16)]
@@ -110,21 +115,28 @@ struct CatalogGrid: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: lang) {
+            guard names else { return }
+            if await CatalogNames.load(symbols: entries.map(\.symbol), lang: lang) { namesVersion += 1 }
+        }
     }
 
     @ViewBuilder
     private func tile(_ entry: Entry) -> some View {
         let caption = entry.issue.isEmpty ? nil : entry.title
-        if let pub = library.installed(symbol: entry.symbol, issue: entry.issue, lang: lang) {
+        let name = names ? (CatalogNames.name(symbol: entry.symbol, lang: lang) ?? entry.title) : entry.title
+        let _ = namesVersion
+        if let pub = library.installed(symbol: entry.file, issue: entry.issue, lang: lang) {
             NavigationLink(value: PubRoute(pubID: pub.id)) {
-                CatalogTile(title: pub.title, caption: caption, image: library.coverImage(pub),
+                CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption,
+                            image: library.coverImage(pub),
                             downloaded: true, downloading: false)
             }
             .buttonStyle(.plain)
         } else {
-            NavigationLink(value: PubRef(symbol: entry.symbol, issue: entry.issue, lang: lang, label: entry.title)) {
-                CatalogTile(title: entry.title, caption: caption, image: nil, downloaded: false,
-                            downloading: library.isDownloading(symbol: entry.symbol, issue: entry.issue, lang: lang))
+            NavigationLink(value: PubRef(symbol: entry.file, issue: entry.issue, lang: lang, label: name)) {
+                CatalogTile(title: name, caption: caption, image: nil, downloaded: false,
+                            downloading: library.isDownloading(symbol: entry.file, issue: entry.issue, lang: lang))
             }
             .buttonStyle(.plain)
         }
@@ -224,16 +236,16 @@ struct DownloadedView: View {
 
     private var groups: [(title: String, pubs: [InstalledPub])] {
         func group(_ pub: InstalledPub) -> String {
-            if pub.isBible { return "Bible" }
+            if pub.isBible { return L("Bible") }
             switch pub.symbol {
-            case "mwb": return "Meeting Workbooks"
-            case "w": return "The Watchtower"
+            case "mwb": return L("Meeting Workbooks")
+            case "w": return L("The Watchtower")
             default:
                 return CatalogItem.all.first { $0.symbol == pub.symbol }?.category == .brochures
-                    ? "Brochures and Booklets" : "Books"
+                    ? L("Brochures and Booklets") : L("Books")
             }
         }
-        let order = ["Bible", "Meeting Workbooks", "The Watchtower", "Books", "Brochures and Booklets"]
+        let order = ["Bible", "Meeting Workbooks", "The Watchtower", "Books", "Brochures and Booklets"].map(L)
         let grouped = Dictionary(grouping: library.pubs, by: group)
         return order.compactMap { name in grouped[name].map { (title: name, pubs: $0) } }
     }

@@ -214,6 +214,16 @@ final class ReaderModel: ObservableObject {
             }
         }
         questions = list
+        notedVerses = []
+        if isBible, let book = currentBook, let chapter = currentChapter {
+            let lang = pub.lang
+            let shown = file
+            Task { @MainActor [weak self] in
+                guard let notes = try? await StudyNotes.load(lang: lang, book: book.number, chapter: chapter),
+                      let self, self.currentFile == shown else { return }
+                self.notedVerses = Set(notes.keys)
+            }
+        }
         questionAtField = atField
         questionAfterNode = afterNode
         findTerm = nil
@@ -301,7 +311,7 @@ final class ReaderModel: ObservableObject {
         case "song":
             if let n = query["n"], !n.isEmpty {
                 let item = MediaItem(source: .pubMedia(["pub": "sjjm", "track": n]), lang: pub.lang,
-                                  title: query["t"].flatMap { $0.isEmpty ? nil : $0 } ?? "Song \(n)")
+                                  title: query["t"].flatMap { $0.isEmpty ? nil : $0 } ?? L("Song %@", n))
                 afterSheet { $0.media = item }
             }
         case "verse":
@@ -332,7 +342,7 @@ final class ReaderModel: ObservableObject {
             reference = ReferenceSheet(title: ref.title, text: ref.text, nodes: ref.nodes, scripture: true,
                                        open: bibleRef(ref.title))
         } else if fragment.hasPrefix("footnote"), let ref = footnotes[fragment] {
-            reference = ReferenceSheet(title: ref.title.isEmpty ? "Footnote" : ref.title, text: ref.text,
+            reference = ReferenceSheet(title: ref.title.isEmpty ? L("Footnote") : ref.title, text: ref.text,
                                        nodes: ref.nodes, scripture: false)
         } else if fragment.hasPrefix("pcitation"), let ref = extracted[fragment] {
             showResearch(ref, file: file, anchor: fragment)
@@ -346,13 +356,15 @@ final class ReaderModel: ObservableObject {
             reference = nil
             openRef(named)
         } else {
-            reference = ReferenceSheet(title: text.isEmpty ? "Link" : text,
-                                       text: "This part isn't included in the downloaded publication.",
+            reference = ReferenceSheet(title: text.isEmpty ? L("Link") : text,
+                                       text: L("This part isn't included in the downloaded publication."),
                                        nodes: [], scripture: false)
         }
     }
 
     @Published var showBibleContents = false
+    /// Verses of the open Bible chapter that have Study Edition notes.
+    @Published private(set) var notedVerses: Set<Int> = []
 
     /// "Jer. 52:1, 2" → that chapter of the Bible, scrolled to the verse.
     private func bibleRef(_ title: String) -> PubRef? {
@@ -455,8 +467,8 @@ final class ReaderModel: ObservableObject {
         let lang = pub.lang
         var loading = verseNode.map { [$0] } ?? []
         var wait = DocNode(kind: .text, tag: "p", role: .note)
-        wait.runs = [InlineRun(text: "Loading study notes…")]
-        wait.plain = "Loading study notes…"
+        wait.runs = [InlineRun(text: L("Loading study notes…"))]
+        wait.plain = wait.runs[0].text
         loading.append(wait)
         for i in loading.indices { loading[i].id = 1_900_000 + i }
         reference = ReferenceSheet(title: title, text: "", nodes: loading, scripture: true)
@@ -467,14 +479,14 @@ final class ReaderModel: ObservableObject {
                 let notes = try await StudyNotes.load(lang: lang, book: book.number, chapter: chapter)
                 if let these = notes[verse], !these.isEmpty {
                     var heading = DocNode(kind: .text, tag: "h3", role: .h3)
-                    heading.runs = [InlineRun(text: "Study notes")]
-                    heading.plain = "Study notes"
+                    heading.runs = [InlineRun(text: L("Study notes"))]
+                    heading.plain = heading.runs[0].text
                     nodes.append(heading)
                     nodes += these
                 } else {
                     var none = DocNode(kind: .text, tag: "p", role: .note)
-                    none.runs = [InlineRun(text: "This verse has no study notes.")]
-                    none.plain = "This verse has no study notes."
+                    none.runs = [InlineRun(text: L("This verse has no study notes."))]
+                    none.plain = none.runs[0].text
                     nodes.append(none)
                 }
             } catch {
@@ -534,7 +546,7 @@ final class ReaderModel: ObservableObject {
     func handleExternal(_ url: URL, text: String) -> OpenURLAction.Result {
         let scheme = url.scheme?.lowercased() ?? ""
         // "Play the VIDEO" says nothing about the video; use a plain title for those.
-        let videoTitle = text.isEmpty || text.lowercased().contains("video") ? "Video" : text
+        let videoTitle = text.isEmpty || text.lowercased().contains("video") ? L("Video") : text
         if let item = LinkParser.media(url, lang: pub.lang, title: videoTitle) {
             afterSheet { $0.media = item }
             return .handled

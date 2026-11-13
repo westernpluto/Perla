@@ -14,7 +14,7 @@ enum StudyNotes {
     enum Failure: LocalizedError {
         case unavailable
         var errorDescription: String? {
-            "The study notes couldn't be loaded. They need an internet connection the first time."
+            L("The study notes couldn't be loaded. They need an internet connection the first time.")
         }
     }
 

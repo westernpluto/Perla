@@ -21,6 +21,7 @@ enum JWColor {
         "gold-100": (0xFFEEB8, 0x3B3220), "cyan-100": (0xBCE8FF, 0x1E3340),
         "green-100": (0xD3F2B9, 0x24331B), "warmGray-50": (0xF0EEEA, 0x262523),
         "link": (0x3B5E9E, 0x9DB4E8), "verse": (0x4A6DA7, 0x8FA9E0),
+        "cyan-50": (0xE8F6FD, 0x1B2A31), "warmGray-600": (0x6B635B, 0x4A443F),
     ]
 
     static func color(_ name: String) -> Color? {
@@ -28,6 +29,16 @@ enum JWColor {
         return Color(UIColor { trait in
             UIColor(hex: trait.userInterfaceStyle == .dark ? pair.dark : pair.light)
         })
+    }
+
+    /// A background color. White and black panels in print become the page's own background in dark
+    /// mode, so text never sits on a bright block.
+    static func background(_ name: String) -> Color? {
+        switch name {
+        case "white": return Color(.systemBackground)
+        case "black": return Color(UIColor(hex: 0x1C1C1E))
+        default: return color(name)
+        }
     }
 
     static var text: Color { color("textDefault") ?? .primary }

@@ -16,6 +16,8 @@ struct PageEnv: Equatable {
     var doc: String
     /// Bible chapters: verse numbers open that verse's study notes.
     var verseLinks = false
+    /// Verses with study notes, whose numbers are underlined.
+    var notedVerses: Set<Int> = []
 }
 
 /// Style that flows from a container into everything inside it, like CSS inheritance.
@@ -184,8 +186,28 @@ struct ContainerBlock: View {
 
     var body: some View {
         let inner = inherited.applying(node.style)
-        content(inner)
-            .modifier(Decoration(style: node.style, env: env, centered: inner.centered))
+        if let picture = node.backgroundImage, node.backgroundOnTop {
+            // "Picture A": the picture across the top, its label below.
+            VStack(alignment: .leading, spacing: 8) {
+                PageImage(path: picture, root: reader.root, alt: "")
+                    .contentShape(Rectangle())
+                    .onTapGesture { onImage(picture) }
+                content(inner)
+            }
+            .padding(.leading, node.style.indent)
+        } else if let picture = node.backgroundImage {
+            // Questions printed over a light illustration: keep print colors so they stay readable.
+            content(inner)
+                .modifier(Decoration(style: node.style, env: env, centered: inner.centered))
+                .background {
+                    BackgroundPicture(path: picture, root: reader.root)
+                        .padding(.horizontal, node.style.bleed ? -env.bleed : 0)
+                }
+                .environment(\.colorScheme, .light)
+        } else {
+            content(inner)
+                .modifier(Decoration(style: node.style, env: env, centered: inner.centered))
+        }
     }
 
     @ViewBuilder
@@ -243,7 +265,7 @@ struct Decoration: ViewModifier {
 
     func body(content: Content) -> some View {
         let s = style
-        let bg = s.background.flatMap(JWColor.color)
+        let bg = s.background.flatMap(JWColor.background)
         let top = s.paddingTop > 0 ? s.paddingTop : (s.borderTop != nil ? env.base * 0.6 : (bg != nil ? env.base * 0.9 : 0))
         let bottom = s.paddingBottom > 0 ? s.paddingBottom : (s.borderBottom != nil ? env.base * 0.5 : (bg != nil ? env.base * 0.9 : 0))
         let lead = s.paddingLeading > 0 ? s.paddingLeading : (s.borderLeading != nil ? 12 : (bg != nil && !s.bleed ? 14 : 0))
@@ -440,6 +462,7 @@ enum PageText {
                       let v = r.chapterNum ? 1 : Int(r.text.trimmingCharacters(in: .whitespaces)),
                       let url = URL(string: "perla://verse?v=\(v)") {
                 a.link = url
+                if env.notedVerses.contains(v) { a.underlineStyle = .single }
             }
             out += a
         }
@@ -618,6 +641,27 @@ enum ImageSizes {
 }
 
 /// A picture from the publication, scaled to the width of the column.
+/// A picture filling the space behind an element.
+struct BackgroundPicture: View {
+    let path: String
+    let root: URL
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color(.white)
+            .overlay {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
+            }
+            .clipped()
+            .task(id: path) {
+                let url = root.appendingPathComponent(path)
+                image = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: url.path) }.value
+            }
+    }
+}
+
 struct PageImage: View {
     let path: String
     let root: URL
@@ -863,7 +907,7 @@ struct ReferencePanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(sheet.title.isEmpty ? "Reference" : sheet.title)
+                Text(sheet.title.isEmpty ? L("Reference") : sheet.title)
                     .font(.headline)
                     .lineLimit(2)
                 Spacer(minLength: 0)

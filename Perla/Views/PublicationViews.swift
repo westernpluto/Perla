@@ -249,7 +249,7 @@ struct BibleBooksView: View {
     }
 
     private func sectionTitle(_ n: Int) -> String {
-        n < index.sections.count ? index.sections[n] : (n == 0 ? "Hebrew-Aramaic Scriptures" : "Christian Greek Scriptures")
+        n < index.sections.count ? index.sections[n] : (n == 0 ? L("Hebrew-Aramaic Scriptures") : L("Christian Greek Scriptures"))
     }
 
     @ViewBuilder

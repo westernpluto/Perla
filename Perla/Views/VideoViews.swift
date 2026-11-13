@@ -25,7 +25,7 @@ enum VideoCatalog {
 
     enum Failure: LocalizedError {
         case unavailable
-        var errorDescription: String? { "The videos couldn't be loaded. Check the connection and try again." }
+        var errorDescription: String? { L("The videos couldn't be loaded. Check the connection and try again.") }
     }
 
     private static func image(_ images: [String: Any]?) -> URL? {

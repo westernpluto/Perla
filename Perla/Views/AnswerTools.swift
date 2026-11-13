@@ -53,9 +53,9 @@ extension View {
                 do {
                     let data = try Data(contentsOf: url)
                     let n = try ImportedAnswers.shared.importFile(data)
-                    done(n == 0 ? "No answers found in that file." : "Imported \(n) answers.")
+                    done(n == 0 ? L("No answers found in that file.") : L("Imported %lld answers.", n))
                 } catch {
-                    done("That file couldn't be read as a Perla answers file.")
+                    done(L("That file couldn't be read as a Perla answers file."))
                 }
             case .failure(let error):
                 done(error.localizedDescription)

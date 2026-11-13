@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Publications offered in the Library, grouped like JW Library. Every symbol here was checked to
 /// have an EPUB on jw.org. Titles are only used before a download; after that the publication's own
@@ -9,9 +12,9 @@ struct CatalogItem: Identifiable, Hashable {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .bible: return "Bible"
-            case .books: return "Books"
-            case .brochures: return "Brochures and Booklets"
+            case .bible: return L("Bible")
+            case .books: return L("Books")
+            case .brochures: return L("Brochures and Booklets")
             }
         }
         var icon: String {
@@ -30,6 +33,9 @@ struct CatalogItem: Identifiable, Hashable {
 
     static let all: [CatalogItem] = [
         CatalogItem(symbol: "nwt", title: "New World Translation of the Holy Scriptures (2013 Revision)", category: .bible),
+        // The Study Edition is only published as JWPUB and PDF; Perla reads the 2013 Bible (EPUB) and
+        // shows the Study Edition's notes beside it.
+        CatalogItem(symbol: "nwtsty", title: "New World Translation (Study Edition)", category: .bible),
         CatalogItem(symbol: "bi12", title: "New World Translation (1984 Edition)", category: .bible),
 
         CatalogItem(symbol: "lff", title: "Enjoy Life Forever!"),
@@ -80,6 +86,51 @@ struct CatalogItem: Identifiable, Hashable {
     static var books: [CatalogItem] { all }
 
     static func items(in category: Category) -> [CatalogItem] { all.filter { $0.category == category } }
+
+    /// The EPUB that is downloaded for this entry (the Study Edition reads the 2013 Bible).
+    var downloadSymbol: String { symbol == "nwtsty" ? "nwt" : symbol }
+
+    /// The title in the publication language, once jw.org has given it; English until then.
+    func localizedTitle(lang: String) -> String {
+        CatalogNames.name(symbol: symbol, lang: lang) ?? title
+    }
+}
+
+/// Publication names in each language, as jw.org gives them ("La Biblia. Traducción del Nuevo Mundo
+/// (edición de estudio)"), fetched once and kept.
+enum CatalogNames {
+    private static let key = "catalogNames"
+
+    static func name(symbol: String, lang: String) -> String? {
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: String])?["\(lang)_\(symbol)"]
+    }
+
+    /// Fetches the names that aren't known yet for `lang`. Returns true if anything new came in.
+    static func load(symbols: [String], lang: String) async -> Bool {
+        let missing = symbols.filter { name(symbol: $0, lang: lang) == nil }
+        guard !missing.isEmpty else { return false }
+        let found = await withTaskGroup(of: (String, String?).self) { group in
+            for sym in missing {
+                group.addTask {
+                    var c = URLComponents(string: "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS")!
+                    c.queryItems = [URLQueryItem(name: "output", value: "json"), URLQueryItem(name: "pub", value: sym),
+                                    URLQueryItem(name: "alllangs", value: "0"), URLQueryItem(name: "langwritten", value: lang)]
+                    guard let url = c.url, let (data, _) = try? await URLSession.shared.data(from: url),
+                          let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                          let raw = obj["pubName"] as? String else { return (sym, nil) }
+                    return (sym, HTMLText.decode(raw))
+                }
+            }
+            var out: [String: String] = [:]
+            for await (sym, name) in group { if let name, !name.isEmpty { out[sym] = name } }
+            return out
+        }
+        guard !found.isEmpty else { return false }
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        for (sym, n) in found { all["\(lang)_\(sym)"] = n }
+        UserDefaults.standard.set(all, forKey: key)
+        return true
+    }
 }
 
 enum Issues {
@@ -116,7 +167,7 @@ enum Issues {
         guard issue.count >= 6, let y = Int(issue.prefix(4)), let m = Int(issue.dropFirst(4).prefix(2)),
               (1...12).contains(m) else { return issue }
         let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US")
+        f.locale = AppLanguage.locale
         let names = f.shortMonthSymbols ?? []
         guard names.count == 12 else { return issue }
         if symbol == "mwb", m < 12 { return "\(names[m - 1])–\(names[m]) \(y)" }

@@ -37,7 +37,6 @@ struct BibleView: View {
         }
         .navigationTitle("Bible")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { LanguageMenu() }
             ToolbarItem(placement: .topBarTrailing) { SettingsButton() }
         }
     }
@@ -89,7 +88,7 @@ struct SearchView: View {
                 ContentUnavailableView.search(text: query)
             }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Words or a phrase")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("Words or a phrase"))
         .navigationTitle("Search")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { SettingsButton() } }
         .task(id: query) {

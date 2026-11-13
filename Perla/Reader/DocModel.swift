@@ -56,6 +56,9 @@ struct DocNode: Identifiable {
     var pid: Int?
     var relPid: Int?
     var listMarker: String?
+    /// A picture the publication draws behind (or, for "-top" layouts, above) this element.
+    var backgroundImage: String?
+    var backgroundOnTop = false
 
     func has(_ cls: String) -> Bool { classes.contains(cls) }
     func hasPrefix(_ p: String) -> Bool { classes.contains { $0.hasPrefix(p) } }
@@ -331,6 +334,10 @@ final class DocParser: NSObject, XMLParserDelegate {
         node.anchors = f.anchors
         node.pid = f.attrs["data-pid"].flatMap { Int($0) }
         node.relPid = f.attrs["data-rel-pid"].flatMap { v in Int(v.filter(\.isNumber)) }
+        if let bg = f.attrs["data-bg-image"], !bg.isEmpty {
+            node.backgroundImage = EPUBParser.path(bg, relativeTo: path)
+            node.backgroundOnTop = f.classes.contains { $0.hasPrefix("dc-bgImageLayout--") && $0.hasSuffix("-top") }
+        }
         if inCaption || f.tag == "figcaption" { node.role = .caption } else { node.role = role(for: f.tag) }
 
         if f.children.isEmpty {
@@ -376,7 +383,9 @@ final class DocParser: NSObject, XMLParserDelegate {
                 return NodeStyle.parse(f.classes).listNone ? nil : "•"
             }
             if f.tag == "ol" {
-                if f.classes.contains("source") { return nil }
+                // "source" lists carry their own numbers ("4.") in the text.
+                if f.classes.contains(where: { $0 == "source" || $0.hasSuffix("listStyleType--source")
+                    || $0.hasSuffix("listStyleType--none") }) { return nil }
                 let n = f.children.filter { $0.tag == "li" }.count + 1
                 return "\(n)."
             }
@@ -538,6 +547,7 @@ final class DocParser: NSObject, XMLParserDelegate {
             if n.children.isEmpty { return [] }
             let semantic = ["ul", "ol", "li", "figure", "aside", "table", "blockquote"].contains(n.tag)
                 || n.has("boxContent") || n.has("boxTtl") || n.has("blockTeach") || n.has("extPubRef")
+                || n.backgroundImage != nil
                 || n.hasPrefix("dc-icon--") || n.role == .caption
             if !semantic && !n.style.hasVisual && n.style.marginTop == nil && n.style.marginBottom == nil {
                 return n.children

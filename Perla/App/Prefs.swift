@@ -43,6 +43,8 @@ enum Prefs {
         static let textScale = "textScale"
         static let serif = "serifFont"
         static let margin = "sideMargin"
+        /// The app's own language: "" follows the iPhone, otherwise "en", "es", "fr", "pt", "de", "it".
+        static let appLang = "appLanguage"
     }
 
     /// Space on each side of the text, in points.
@@ -52,4 +54,37 @@ enum Prefs {
 
     static var langCode: String { d.string(forKey: Key.lang) ?? "E" }
     static var language: PubLanguage { PubLanguage.find(langCode) }
+}
+
+/// The language of the app itself (menus, buttons, messages), separate from the publications' language.
+enum AppLanguage {
+    static let choices: [(code: String, name: String)] = [
+        ("en", "English"), ("es", "Español"), ("fr", "Français"), ("pt", "Português"), ("de", "Deutsch"), ("it", "Italiano"),
+    ]
+
+    /// The chosen language code, or the iPhone's language when Perla has a translation for it.
+    static var code: String {
+        let chosen = UserDefaults.standard.string(forKey: Prefs.Key.appLang) ?? ""
+        if !chosen.isEmpty { return chosen }
+        let preferred = Bundle.preferredLocalizations(from: choices.map(\.code), forPreferences: Locale.preferredLanguages)
+        return preferred.first ?? "en"
+    }
+
+    static var locale: Locale { Locale(identifier: code) }
+
+    /// The translations for the current language (English text is the key, so English needs none).
+    static var bundle: Bundle {
+        if let path = Bundle.main.path(forResource: code, ofType: "lproj"), let b = Bundle(path: path) { return b }
+        return Bundle.main
+    }
+}
+
+/// Interface text in the app's language. The English text is the key.
+func L(_ key: String) -> String {
+    AppLanguage.bundle.localizedString(forKey: key, value: key, table: nil)
+}
+
+/// Interface text with values filled in: L("Imported %lld answers.", n).
+func L(_ key: String, _ args: CVarArg...) -> String {
+    String(format: L(key), locale: AppLanguage.locale, arguments: args)
 }

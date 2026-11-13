@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.Key.textScale) private var textScale = 1.0
     @AppStorage(Prefs.Key.serif) private var serif = false
     @AppStorage(Prefs.Key.margin) private var margin = Prefs.defaultMargin
+    @AppStorage(Prefs.Key.lang) private var pubLang = "E"
+    @AppStorage(Prefs.Key.appLang) private var appLang = ""
 
     @State private var saved = AnswerStore.shared.count
     @State private var imported = ImportedAnswers.shared.count
@@ -16,6 +18,28 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Publications", selection: $pubLang) {
+                        ForEach(PubLanguage.all) { l in Text(l.native).tag(l.code) }
+                    }
+                    Picker("App", selection: $appLang) {
+                        Text("Same as iPhone").tag("")
+                        ForEach(AppLanguage.choices, id: \.code) { c in Text(c.name).tag(c.code) }
+                    }
+                } header: {
+                    Text("Language")
+                        .onChange(of: appLang) { _, code in
+                            // Also tell iOS, so system text (pickers, share sheets) follows after a restart.
+                            if code.isEmpty {
+                                UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+                            } else {
+                                UserDefaults.standard.set([code], forKey: "AppleLanguages")
+                            }
+                        }
+                } footer: {
+                    Text("Publications are downloaded in their language. The app's menus and buttons can use a different one.")
+                }
+
                 Section("Reading") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -96,15 +120,15 @@ struct SettingsView: View {
 
     private func pasteAnswers() {
         guard let text = UIPasteboard.general.string, !text.isEmpty else {
-            importMessage = "The clipboard is empty."
+            importMessage = L("The clipboard is empty.")
             return
         }
         do {
             let n = try ImportedAnswers.shared.importText(text)
             imported = ImportedAnswers.shared.count
-            importMessage = n == 0 ? "No answers found in the clipboard." : "Imported \(n) answers."
+            importMessage = n == 0 ? L("No answers found in the clipboard.") : L("Imported %lld answers.", n)
         } catch {
-            importMessage = "The clipboard doesn't contain a Perla answers file."
+            importMessage = L("The clipboard doesn't contain a Perla answers file.")
         }
     }
 

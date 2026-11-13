@@ -42,8 +42,8 @@ struct PubRef: Hashable {
 
     /// "Lesson 12" style references, shown on buttons.
     var buttonTitle: String {
-        if isBible { return label.isEmpty ? "Open in the Bible" : "Open \(label)" }
-        return label.isEmpty ? "Open publication" : "Open \(label)"
+        if isBible { return label.isEmpty ? L("Open in Bible") : L("Open %@", label) }
+        return label.isEmpty ? L("Open in publication") : L("Open %@", label)
     }
 }
 
@@ -93,6 +93,17 @@ enum Linkifier {
         "(?<![\\w-])(w|wp|g|mwb)(\\d{2})(?:\\.(\\d{1,2})|\\s+(\\d{1,2})/(\\d{1,2}))(?!\\d)"
         + "(?:\\s+(\\d{1,3})(?:-\\d{1,3})?(?![\\d:])" + parPattern + ")?")
 
+    /// Old Watchtower dates: English writes "8/15" (month/day), Spanish and others "15/8" (day/month).
+    /// Issues came out on the 1st and 15th, which tells the two apart.
+    static func monthDay(_ a: Int, _ b: Int) -> (Int, Int)? {
+        let days: Set<Int> = [1, 15]
+        if a > 12 { return (1...12).contains(b) ? (b, a) : nil }
+        if b > 12 { return (a, b) }
+        if days.contains(b) && !days.contains(a) { return (a, b) }
+        if days.contains(a) && !days.contains(b) { return (b, a) }
+        return (a, b)
+    }
+
     /// Every book or magazine reference in `text`, with its page or lesson and paragraph.
     static func pubRefs(in text: String, lang: String) -> [(range: NSRange, ref: PubRef)] {
         let ns = text as NSString
@@ -115,7 +126,8 @@ enum Linkifier {
             let issue: String
             if let mm = group(m, 3).flatMap({ Int($0) }), (1...12).contains(mm) {
                 issue = String(format: "%04d%02d", year, mm)
-            } else if let mm = group(m, 4).flatMap({ Int($0) }), let dd = group(m, 5).flatMap({ Int($0) }), (1...12).contains(mm) {
+            } else if let a = group(m, 4).flatMap({ Int($0) }), let b = group(m, 5).flatMap({ Int($0) }),
+                      let (mm, dd) = Self.monthDay(a, b) {
                 issue = String(format: "%04d%02d%02d", year, mm, dd)
             } else { continue }
             var ref = PubRef(symbol: sym, issue: issue, lang: lang, label: ns.substring(with: m.range))
@@ -155,7 +167,8 @@ enum Linkifier {
                     rest.removeFirst()
                 } else if next.range(of: "^\\d{1,2}/\\d{1,2}$", options: .regularExpression) != nil {
                     let md = next.split(separator: "/").compactMap { Int($0) }
-                    issue = String(format: "%04d%02d%02d", year, md[0], md[1])
+                    let (mm, dd) = monthDay(md[0], md[1]) ?? (md[0], md[1])
+                    issue = String(format: "%04d%02d%02d", year, mm, dd)
                     rest.removeFirst()
                 }
             }
@@ -408,7 +421,7 @@ enum PubResolver {
         }
 
         guard !ref.symbol.isEmpty else {
-            throw Failure.notFound("This document isn't in any downloaded publication.")
+            throw Failure.notFound(L("This document isn't in any downloaded publication."))
         }
         let pub = try await library.ensure(symbol: ref.symbol, issue: ref.issue, lang: ref.lang)
         let root = library.folder(pub)
@@ -495,7 +508,7 @@ enum PubResolver {
 enum MediaResolver {
     enum Failure: LocalizedError {
         case notFound
-        var errorDescription: String? { "This video isn't available to play." }
+        var errorDescription: String? { L("This video isn't available to play.") }
     }
 
     static func resolve(_ item: MediaItem) async throws -> URL {

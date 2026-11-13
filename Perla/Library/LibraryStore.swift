@@ -80,7 +80,7 @@ final class LibraryStore: ObservableObject {
             let link = try await PubMedia.epubLink(symbol: symbol, issue: issue, lang: lang)
             let (tmp, response) = try await URLSession.shared.download(from: link.url)
             guard (response as? HTTPURLResponse)?.statusCode ?? 200 == 200 else {
-                throw PubMedia.Failure.network("The download didn't finish. Try again.")
+                throw PubMedia.Failure.network(L("The download didn't finish. Try again."))
             }
             return try await Self.install(file: tmp, id: id, symbol: symbol, issue: issue, lang: lang,
                                           fallbackTitle: link.title, into: self.root)

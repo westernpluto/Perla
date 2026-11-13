@@ -46,7 +46,7 @@ struct PubRefDestination: View {
         } else {
             VStack(spacing: 14) {
                 ProgressView()
-                Text(needsDownload ? "Downloading \(ref.displayTitle)…" : "Opening \(ref.displayTitle)…")
+                Text(needsDownload ? L("Downloading %@…", ref.displayTitle) : L("Opening %@…", ref.displayTitle))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -117,22 +117,22 @@ struct PubRefDestination: View {
 extension PubRef {
     /// The button that opens the full publication: "Open in Bible", "Open in The Watchtower · Oct 2017".
     var openTitle: String {
-        if isBible { return "Open in Bible" }
+        if isBible { return L("Open in Bible") }
         if CatalogItem.books.contains(where: { $0.symbol == symbol }) || ["w", "wp", "g", "mwb"].contains(symbol) {
-            return "Open in \(displayTitle)"
+            return L("Open in %@", displayTitle)
         }
-        return "Open in publication"
+        return L("Open in publication")
     }
 
     /// The publication's name, for titles and the download card.
     var displayTitle: String {
-        if isBible { return label.isEmpty ? "Bible" : label }
-        if let item = CatalogItem.books.first(where: { $0.symbol == symbol }) { return item.title }
+        if isBible { return label.isEmpty ? L("Bible") : label }
+        if let item = CatalogItem.books.first(where: { $0.symbol == symbol }) { return item.localizedTitle(lang: lang) }
         switch symbol {
-        case "w": return issue.isEmpty ? "The Watchtower" : "The Watchtower · \(Issues.label(symbol: "w", issue: issue))"
-        case "wp": return issue.isEmpty ? "The Watchtower" : "The Watchtower · \(Issues.label(symbol: "wp", issue: issue))"
-        case "g": return issue.isEmpty ? "Awake!" : "Awake! · \(Issues.label(symbol: "g", issue: issue))"
-        case "mwb": return issue.isEmpty ? "Meeting Workbook" : "Workbook · \(Issues.label(symbol: "mwb", issue: issue))"
+        case "w": return issue.isEmpty ? L("The Watchtower") : L("The Watchtower") + " · " + Issues.label(symbol: "w", issue: issue)
+        case "wp": return issue.isEmpty ? L("The Watchtower") : L("The Watchtower") + " · " + Issues.label(symbol: "wp", issue: issue)
+        case "g": return issue.isEmpty ? L("Awake!") : L("Awake!") + " · " + Issues.label(symbol: "g", issue: issue)
+        case "mwb": return issue.isEmpty ? L("Meeting Workbooks") : L("Workbook") + " · " + Issues.label(symbol: "mwb", issue: issue)
         default: return label.isEmpty ? symbol.uppercased() : label
         }
     }

@@ -12,7 +12,7 @@ enum PubMedia {
         case network(String)
         var errorDescription: String? {
             switch self {
-            case .notAvailable(let what): return "\(what) isn't available to download in this language yet."
+            case .notAvailable(let what): return L("%@ isn't available to download in this language yet.", what)
             case .network(let m): return m
             }
         }

@@ -49,14 +49,14 @@ enum MeetingReader {
                         }
                     }
                     study = MeetingItem(route: ReaderRoute(pubID: pub.id, href: target),
-                                        title: "Congregation Bible Study",
+                                        title: L("Congregation Bible Study"),
                                         detail: [what, chapterTitle].filter { !$0.isEmpty }.joined(separator: " · "))
                     break
                 }
                 break
             }
         }
-        let item = MeetingItem(route: ReaderRoute(pubID: pub.id, href: match.href), title: "Midweek meeting",
+        let item = MeetingItem(route: ReaderRoute(pubID: pub.id, href: match.href), title: L("Workbook"),
                                detail: detail)
         return (item, study)
     }
@@ -68,53 +68,46 @@ enum MeetingReader {
            let t = HTMLText.title(html) {
             detail = t
         }
-        return MeetingItem(route: ReaderRoute(pubID: pub.id, href: match.href), title: "Watchtower Study",
+        return MeetingItem(route: ReaderRoute(pubID: pub.id, href: match.href), title: L("Watchtower Study"),
                            detail: detail)
     }
 }
 
 @MainActor
 final class MeetingsModel: ObservableObject {
-    /// Week 0 is this week; more are added with "Show more weeks".
-    @Published var weeks: [MeetingWeek] = [MeetingWeek(), MeetingWeek()]
-    @Published var loading = false
-    private var loadedKey = ""
-    private var loadedCount = 0
+    /// Monday of the week being shown.
+    @Published var week = Issues.weekStart(Date())
+    @Published private(set) var current = MeetingWeek()
+    @Published private(set) var loading = false
+    private var cache: [String: MeetingWeek] = [:]
 
-    static func weekStart(_ offset: Int) -> Date {
-        let today = Issues.weekStart(Date())
-        return Issues.calendar.date(byAdding: .day, value: 7 * offset, to: today) ?? today
+    var isThisWeek: Bool { Issues.calendar.isDate(week, inSameDayAs: Issues.weekStart(Date())) }
+
+    func move(by weeks: Int) {
+        week = Issues.calendar.date(byAdding: .day, value: 7 * weeks, to: week) ?? week
     }
 
-    func refresh(force: Bool = false) async {
+    func go(to date: Date) {
+        week = Issues.weekStart(date)
+    }
+
+    func load(force: Bool = false) async {
         let lang = Prefs.langCode
-        let key = "\(lang)|\(Self.weekStart(0).timeIntervalSince1970)"
-        guard force || key != loadedKey, !loading else { return }
-        if key != loadedKey || force { loadedCount = 0 }
-        loading = true
-        defer { loading = false }
-        for offset in loadedCount..<weeks.count {
-            weeks[offset] = await load(week: Self.weekStart(offset), lang: lang)
+        let shown = week
+        let key = "\(lang)|\(shown.timeIntervalSince1970)"
+        if !force, let cached = cache[key] {
+            current = cached
+            return
         }
-        loadedCount = weeks.count
-        loadedKey = key
-    }
-
-    /// Adds the next four weeks (as far as published workbooks and Watchtowers go).
-    func showMore() async {
-        weeks += Array(repeating: MeetingWeek(), count: 4)
-        await refresh(force: false, extending: true)
-    }
-
-    private func refresh(force: Bool, extending: Bool) async {
-        guard !loading else { return }
+        current = MeetingWeek()
         loading = true
-        defer { loading = false }
-        let lang = Prefs.langCode
-        for offset in loadedCount..<weeks.count {
-            weeks[offset] = await load(week: Self.weekStart(offset), lang: lang)
+        let result = await load(week: shown, lang: lang)
+        cache[key] = result
+        // Only show it if that week is still the one picked.
+        if week == shown {
+            current = result
+            loading = false
         }
-        loadedCount = weeks.count
     }
 
     private func load(week: Date, lang: String) async -> MeetingWeek {
@@ -143,7 +136,9 @@ final class MeetingsModel: ObservableObject {
                 lastError = error.localizedDescription
             }
         }
-        if result.midweek == nil { result.midweekNote = lastError ?? "Not in the workbook yet." }
+        if result.midweek == nil {
+            result.midweekNote = lastError ?? L("This week isn't in a workbook yet.")
+        }
 
         // Weekend: Watchtower study issues come out about two months ahead.
         lastError = nil
@@ -164,45 +159,81 @@ final class MeetingsModel: ObservableObject {
                 lastError = error.localizedDescription
             }
         }
-        if result.watchtower == nil { result.watchtowerNote = lastError ?? "The study article wasn't found." }
+        if result.watchtower == nil {
+            result.watchtowerNote = lastError ?? L("The study article wasn't found.")
+        }
         return result
     }
 }
 
-/// The coming weeks' meetings, three rows each. Tap one to open it.
+/// One week's meetings. The arrows and the calendar in the toolbar pick the week.
 struct MeetingsView: View {
     @StateObject private var model = MeetingsModel()
     @AppStorage(Prefs.Key.lang) private var lang = "E"
+    @State private var picking = false
 
     var body: some View {
         List {
-            ForEach(model.weeks.indices, id: \.self) { i in
-                Section(header(i)) {
-                    let week = model.weeks[i]
-                    row(week.midweek, icon: "person.2", fallback: "Midweek meeting", note: week.midweekNote)
-                    if let study = week.bibleStudy {
-                        row(study, icon: "book", fallback: "", note: nil)
+            Section {
+                row(model.current.midweek, icon: "person.2", fallback: L("Workbook"),
+                    note: model.current.midweekNote)
+                if let study = model.current.bibleStudy {
+                    NavigationLink(value: study.route) {
+                        MeetingRowLabel(icon: "book", title: study.title, detail: study.detail, loading: false)
                     }
-                    row(week.watchtower, icon: "text.book.closed", fallback: "Watchtower Study",
-                        note: week.watchtowerNote)
                 }
+            } header: {
+                Text("Midweek meeting")
             }
             Section {
-                Button {
-                    Task { await model.showMore() }
-                } label: {
-                    Label("Show more weeks", systemImage: "calendar.badge.plus")
-                }
-                .disabled(model.loading)
+                row(model.current.watchtower, icon: "text.book.closed", fallback: L("Watchtower Study"),
+                    note: model.current.watchtowerNote)
+            } header: {
+                Text("Weekend meeting")
             }
         }
-        .navigationTitle("Meetings")
+        .navigationTitle(weekTitle)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { LanguageMenu() }
-            ToolbarItem(placement: .topBarTrailing) { SettingsButton() }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("Previous week", systemImage: "chevron.backward") { model.move(by: -1) }
+                Button("Pick a week", systemImage: "calendar") { picking = true }
+                    .popover(isPresented: $picking) { weekPicker }
+                Button("Next week", systemImage: "chevron.forward") { model.move(by: 1) }
+                SettingsButton()
+            }
         }
-        .refreshable { await model.refresh(force: true) }
-        .task(id: lang) { await model.refresh() }
+        .refreshable { await model.load(force: true) }
+        .task(id: "\(lang)|\(model.week.timeIntervalSince1970)") { await model.load() }
+    }
+
+    private var weekPicker: some View {
+        VStack(spacing: 12) {
+            DatePicker("Week", selection: Binding(get: { model.week }, set: { model.go(to: $0); picking = false }),
+                       displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+            if !model.isThisWeek {
+                Button("This week") {
+                    model.go(to: Date())
+                    picking = false
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding()
+        .frame(minWidth: 320)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    /// "Nov 9 – 15" (or "This week")
+    private var weekTitle: String {
+        if model.isThisWeek { return L("This week") }
+        let end = Issues.calendar.date(byAdding: .day, value: 6, to: model.week) ?? model.week
+        let f = DateIntervalFormatter()
+        f.locale = AppLanguage.locale
+        f.dateTemplate = "MMMd"
+        return f.string(from: model.week, to: end)
     }
 
     @ViewBuilder
@@ -212,19 +243,10 @@ struct MeetingsView: View {
                 MeetingRowLabel(icon: icon, title: item.title, detail: item.detail, loading: false)
             }
         } else {
-            MeetingRowLabel(icon: icon, title: fallback, detail: note ?? "Getting it from jw.org…",
-                            loading: note == nil)
+            MeetingRowLabel(icon: icon, title: fallback,
+                            detail: model.loading ? L("Getting it from jw.org…") : (note ?? ""),
+                            loading: model.loading)
         }
-    }
-
-    private func header(_ offset: Int) -> String {
-        let start = MeetingsModel.weekStart(offset)
-        let end = Issues.calendar.date(byAdding: .day, value: 6, to: start) ?? start
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US")
-        f.setLocalizedDateFormatFromTemplate("MMMd")
-        let name = offset == 0 ? "This week" : offset == 1 ? "Next week" : "In \(offset) weeks"
-        return name + " · \(f.string(from: start)) – \(f.string(from: end))"
     }
 }
 
@@ -263,24 +285,6 @@ enum BibleStudyFinder {
         "etude biblique de l’assemblee", "estudo biblico de congregacao", "versammlungsbibelstudium",
         "studio biblico di congregazione",
     ]
-}
-
-/// Picks the language publications are downloaded in (the app itself stays in English).
-struct LanguageMenu: View {
-    @AppStorage(Prefs.Key.lang) private var lang = "E"
-
-    var body: some View {
-        Menu {
-            Picker("Publication language", selection: $lang) {
-                ForEach(PubLanguage.all) { l in
-                    Text(l.name == l.native ? l.name : "\(l.name) · \(l.native)").tag(l.code)
-                }
-            }
-        } label: {
-            Label(PubLanguage.find(lang).native, systemImage: "globe")
-                .labelStyle(.titleAndIcon)
-        }
-    }
 }
 
 struct SettingsButton: View {
