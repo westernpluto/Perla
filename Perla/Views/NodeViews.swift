@@ -46,9 +46,14 @@ enum PageLayout {
     static func gap(prev: DocNode?, node: DocNode, env: PageEnv, childGap: CGFloat? = nil) -> CGFloat {
         let b = env.base
         guard let prev else { return node.style.marginTop ?? 0 }
-        // A picture's label strip continues the picture right above it.
-        if node.backgroundOnTop, prev.kind == .image || prev.tag == "figure" || prev.children.contains(where: { $0.kind == .image }) {
+        // Edge-to-edge pieces (a picture, its label strip, a panel over a picture) touch, like print.
+        if node.style.bleed && prev.style.bleed && node.style.marginTop == nil && prev.style.marginBottom == nil {
             return 0
+        }
+        if node.backgroundOnTop {
+            var picture = false
+            prev.walk { if $0.kind == .image { picture = true } }
+            if picture { return 0 }
         }
         if let m = node.style.marginTop { return max(m, prev.style.marginBottom ?? 0) }
         if let m = prev.style.marginBottom { return m }
@@ -214,8 +219,10 @@ struct ContainerBlock: View {
         } else if let picture = node.backgroundImage {
             // Questions printed over a light illustration that stretches to the whole panel
             // ("background-size: 100% 100%"). Print colors keep them readable.
+            // The panel color is only the fallback for the picture, so it isn't drawn over it.
             content(inner)
-                .modifier(Decoration(style: node.style, env: env, centered: inner.centered))
+                .modifier(Decoration(style: { var st = node.style; st.background = nil; return st }(),
+                                     env: env, centered: inner.centered))
                 .background {
                     BackgroundPicture(path: picture, root: reader.root, fill: true)
                         .padding(.horizontal, node.style.bleed ? -env.bleed : 0)
