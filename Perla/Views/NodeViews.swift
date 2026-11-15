@@ -147,15 +147,9 @@ struct NodeView: View, Equatable {
                                  background: node.style.iconBackground, color: node.style.iconColor)
                         TextBlock(node: node, env: env, inherited: inherited, showIcon: false)
                     }
-                } else if let marker = node.listMarker {
-                    // Hanging numbers and bullets, 1.5 em wide like the publication.
-                    HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        Text(marker)
-                            .font(.system(size: size, weight: .bold))
-                            .foregroundStyle(JWColor.text)
-                            .frame(minWidth: size * 1.5, alignment: .leading)
-                        TextBlock(node: node, env: env, inherited: inherited, showIcon: true)
-                    }
+                } else if node.listMarker != nil {
+                    // The hanging number is part of the paragraph, so it shares its baseline.
+                    TextBlock(node: node, env: env, inherited: inherited, showIcon: true, marker: node.listMarker)
                 } else {
                     TextBlock(node: node, env: env, inherited: inherited, showIcon: true)
                 }
@@ -258,10 +252,13 @@ struct ContainerBlock: View {
                 stack(inner)
             }
         } else if let marker = node.listMarker {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // Bullets and numbers of list items that hold several blocks: the marker lines up with
+            // the first line (both start at the top with the same font size).
+            HStack(alignment: .top, spacing: 0) {
                 Text(marker)
-                    .font(.system(size: env.base * inner.scale, weight: .semibold))
+                    .font(.system(size: env.base * inner.scale, weight: .bold))
                     .foregroundStyle(JWColor.text)
+                    .frame(minWidth: env.base * inner.scale * 1.5, alignment: .leading)
                 stack(inner)
             }
         } else {
@@ -336,6 +333,8 @@ struct TextBlock: View {
     let env: PageEnv
     let inherited: Inherited
     let showIcon: Bool
+    /// A hanging number or bullet ("4.") drawn in the paragraph's own first line.
+    var marker: String? = nil
 
     static func size(_ node: DocNode, env: PageEnv, inherited: Inherited) -> CGFloat {
         env.base * inherited.scale * (node.style.fontScale ?? roleScale(node))
@@ -368,7 +367,8 @@ struct TextBlock: View {
         // Paragraphs on a page can be highlighted; text shown in a sheet can only be selected.
         let key = env.doc.hasPrefix("ref-") ? nil : HighlightStore.key(pubID: env.pubID, doc: env.doc, node: node.id)
         let text = PageText.build(node, size: size, env: env, heading: heading, showIcon: showIcon, baseColor: color,
-                                  centered: centered, highlights: key.flatMap { highlights.marks[$0] } ?? [])
+                                  centered: centered, highlights: key.flatMap { highlights.marks[$0] } ?? [],
+                                  marker: marker)
         RichText(text: text, highlightKey: key) { url in openURL(url) }
             .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             .padding(.leading, env.bible && node.has("sz") ? env.base * 1.6 : 0)

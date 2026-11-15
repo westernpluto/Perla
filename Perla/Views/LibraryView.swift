@@ -102,7 +102,7 @@ struct CatalogGrid: View {
     @State private var namesVersion = 0
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(Prefs.Key.lang) private var lang = "E"
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 16, alignment: .top)]
 
     var body: some View {
         ScrollView {
@@ -246,7 +246,7 @@ struct CatalogTile: View {
 struct DownloadedView: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var confirmDelete: InstalledPub?
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 16, alignment: .top)]
 
     var body: some View {
         ScrollView {

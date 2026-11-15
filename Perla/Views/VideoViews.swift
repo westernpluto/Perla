@@ -74,7 +74,7 @@ struct VideoCategoryView: View {
     @State private var page: VideoCatalog.Page?
     @State private var error: String?
     @State private var playing: MediaItem?
-    private let columns = [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 16)]
+    private let columns = [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 16, alignment: .top)]
 
     var body: some View {
         Group {

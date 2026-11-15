@@ -186,11 +186,21 @@ enum PageText {
     }
 
     static func build(_ node: DocNode, size: CGFloat, env: PageEnv, heading: Bool, showIcon: Bool,
-                      baseColor: UIColor, centered: Bool, highlights: [HighlightStore.Mark]) -> NSAttributedString {
+                      baseColor: UIColor, centered: Bool, highlights: [HighlightStore.Mark],
+                      marker: String? = nil) -> NSAttributedString {
         let serif = env.serif && !heading
         let blockBold = heading && !node.style.normalWeight
         let out = NSMutableAttributedString()
         let plainFont = font(size: size, weight: .regular, serif: serif, italic: false)
+        // A hanging number ("4.") or bullet: it starts the first line and the rest of the paragraph
+        // lines up after it, like the publication's 1.5 em hanging indent.
+        var hang: CGFloat = 0
+        if let marker {
+            let markerFont = font(size: size, weight: .bold, serif: false, italic: false)
+            let width = (marker as NSString).size(withAttributes: [.font: markerFont]).width
+            hang = max(size * 1.5, ceil(width + size * 0.45))
+            out.append(NSAttributedString(string: marker + "\t", attributes: [.font: markerFont, .foregroundColor: baseColor]))
+        }
 
         if showIcon, let icon = node.style.icon {
             if let f = JWIcons.shared.uiFont(pubID: env.pubID, size: size * 1.15),
@@ -246,8 +256,8 @@ enum PageText {
                 runSerif = false
                 color = UIColor(JWColor.verse)
             } else if r.parNum {
+                // Paragraph numbers at text size, on the line.
                 weight = .bold
-                runSize = size * 0.86
                 runSerif = false
                 color = UIColor(JWColor.subdued)
             } else if r.isNoteMark {
@@ -255,9 +265,8 @@ enum PageText {
                 offset = size * 0.38
                 runSerif = false
             } else if r.sup && (env.bible || r.bold) {
-                // Verse numbers: bold, blue and on the line, like JW Library.
+                // Verse numbers: bold, blue, on the line and at text size.
                 weight = .bold
-                runSize = size * 0.8
                 runSerif = false
                 color = UIColor(JWColor.verse)
             } else if r.sup {
@@ -297,6 +306,11 @@ enum PageText {
         let para = NSMutableParagraphStyle()
         para.lineSpacing = size * (heading ? 0.14 : 0.36)
         para.alignment = centered ? .center : .natural
+        if hang > 0 {
+            para.headIndent = hang
+            para.tabStops = [NSTextTab(textAlignment: .natural, location: hang)]
+            para.defaultTabInterval = hang
+        }
         out.addAttribute(.paragraphStyle, value: para, range: all)
 
         for m in highlights where NSMaxRange(m.range) <= out.length {
