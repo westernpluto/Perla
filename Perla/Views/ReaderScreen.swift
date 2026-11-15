@@ -109,33 +109,23 @@ struct ReaderScreen: View {
     @ViewBuilder
     private func bibleChapter(env: PageEnv, side: CGFloat) -> some View {
         let key = HighlightStore.key(pubID: reader.pub.id, doc: reader.currentFile, node: -1)
-        let text = PageText.chapter(reader.doc, env: env, highlights: highlights.marks[key] ?? [],
-                                    previous: reader.hasPrevious ? reader.previousTitle : nil,
-                                    next: reader.hasNext ? reader.nextTitle : nil)
-        ChapterText(text: text, highlightKey: key,
+        let marks = highlights.marks[key] ?? []
+        let previous = reader.hasPrevious ? reader.previousTitle : nil
+        let next = reader.hasNext ? reader.nextTitle : nil
+        // Everything the chapter's text depends on; it's rebuilt only when this changes.
+        let signature = "\(reader.currentFile)|\(reader.doc.nodes.count)|\(env.base)|\(env.findTerm ?? "")|"
+            + "\(env.verseLinks)|\(env.notedVerses.sorted())|\(previous ?? "")|\(next ?? "")|"
+            + marks.map { "\($0.location),\($0.length),\($0.tint.rawValue)" }.joined(separator: ";")
+        let doc = reader.doc
+        ChapterText(chapter: reader.currentFile, signature: signature, build: {
+            PageText.chapter(doc, env: env, highlights: marks, previous: previous, next: next)
+        }, highlightKey: key,
                     insets: UIEdgeInsets(top: 14, left: side, bottom: 48, right: side),
-                    target: chapterTarget(text)) { url in _ = reader.handleLink(url) }
+                    request: reader.anchorRequest) { url in _ = reader.handleLink(url) }
             .ignoresSafeArea(edges: .bottom)
             .overlay {
                 if reader.loading && reader.doc.nodes.isEmpty { ProgressView() }
             }
-            .simultaneousGesture(swipe)
-    }
-
-    /// The verse or searched word the chapter was opened at.
-    private func chapterTarget(_ text: NSAttributedString) -> (location: Int, token: UUID)? {
-        guard let request = reader.anchorRequest else { return nil }
-        if let anchor = request.anchor,
-           let m = anchor.range(of: "verse(\\d+)", options: .regularExpression),
-           let v = Int(anchor[m].dropFirst(5)),
-           let at = PageText.location(ofVerse: v, in: text) {
-            return (at, request.token)
-        }
-        if let find = request.find {
-            let r = (text.string as NSString).range(of: find, options: [.caseInsensitive, .diacriticInsensitive])
-            if r.location != NSNotFound { return (r.location, request.token) }
-        }
-        return nil
     }
 
     @ViewBuilder

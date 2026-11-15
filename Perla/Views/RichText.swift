@@ -185,21 +185,32 @@ private func makeTextView(_ coordinator: TextViewCoordinator, scrolls: Bool) -> 
 }
 
 /// A paragraph drawn by iOS's own text view, so you can select words and highlight them.
-/// Links open through the page's link handler.
+/// The text is only rebuilt when what it shows changes (`signature`), so redraws while scrolling
+/// don't reset a selection.
 struct RichText: UIViewRepresentable {
-    let text: NSAttributedString
+    /// Everything the text depends on; the text is rebuilt only when this changes.
+    let signature: String
+    let build: () -> NSAttributedString
     /// Where highlights for this paragraph are kept; nil when it can't be highlighted (sheets).
     let highlightKey: String?
     let onLink: (URL) -> Void
 
-    func makeCoordinator() -> TextViewCoordinator { TextViewCoordinator() }
+    final class Coordinator: TextViewCoordinator {
+        var signature: String?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PerlaTextView { makeTextView(context.coordinator, scrolls: false) }
 
     func updateUIView(_ v: PerlaTextView, context: Context) {
-        context.coordinator.onLink = onLink
-        context.coordinator.highlightKey = highlightKey
-        if v.attributedText != text { v.attributedText = text }
+        let c = context.coordinator
+        c.onLink = onLink
+        c.highlightKey = highlightKey
+        if c.signature != signature {
+            c.signature = signature
+            v.attributedText = build()
+        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: PerlaTextView, context: Context) -> CGSize? {
@@ -210,19 +221,25 @@ struct RichText: UIViewRepresentable {
 }
 
 /// A whole Bible chapter as one text, so a selection can run across verses and paragraphs.
-/// It scrolls itself, and jumps to a verse or a search match when asked.
+/// It scrolls itself, and jumps to a verse or a search match when asked. Like `RichText`, the text
+/// is only rebuilt when what it shows changes, so scrolling never resets a selection.
 struct ChapterText: UIViewRepresentable {
-    let text: NSAttributedString
+    /// The chapter shown; a new one starts at the top.
+    let chapter: String
+    /// Everything the text depends on (chapter, size, highlights…).
+    let signature: String
+    let build: () -> NSAttributedString
     let highlightKey: String?
     /// Space around the text (side margins, top and bottom).
     let insets: UIEdgeInsets
-    /// Where to scroll: a character position, with a token so the same spot can be asked for again.
-    let target: (location: Int, token: UUID)?
+    /// A verse anchor or searched word to show.
+    let request: AnchorRequest?
     let onLink: (URL) -> Void
 
     final class Coordinator: TextViewCoordinator {
+        var signature: String?
+        var chapter: String?
         var lastToken: UUID?
-        var lastText: NSAttributedString?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -240,25 +257,47 @@ struct ChapterText: UIViewRepresentable {
         c.onLink = onLink
         c.highlightKey = highlightKey
         if v.textContainerInset != insets { v.textContainerInset = insets }
-        if !(c.lastText?.isEqual(to: text) ?? false) {
+        if c.signature != signature {
+            let sameChapter = c.chapter == chapter
             let offset = v.contentOffset
-            let sameChapter = c.lastText?.string == text.string
-            v.attributedText = text
-            c.lastText = text
+            let selection = v.selectedRange
+            c.signature = signature
+            c.chapter = chapter
+            v.attributedText = build()
             // Re-styling (a highlight, the text size) keeps your place; a new chapter starts at the top.
-            if sameChapter { v.setContentOffset(offset, animated: false) } else { v.setContentOffset(.zero, animated: false) }
-        }
-        if let target, target.token != c.lastToken, target.location < text.length {
-            c.lastToken = target.token
-            DispatchQueue.main.async {
-                v.layoutIfNeeded()
-                let range = NSRange(location: target.location, length: 0)
-                guard let start = v.position(from: v.beginningOfDocument, offset: range.location) else { return }
-                let rect = v.caretRect(for: start)
-                let y = max(0, min(rect.minY - insets.top, v.contentSize.height - v.bounds.height + v.adjustedContentInset.bottom))
-                v.setContentOffset(CGPoint(x: 0, y: y - v.adjustedContentInset.top), animated: true)
+            if sameChapter {
+                v.setContentOffset(offset, animated: false)
+                if NSMaxRange(selection) <= v.attributedText.length { v.selectedRange = selection }
+            } else {
+                v.setContentOffset(CGPoint(x: 0, y: -v.adjustedContentInset.top), animated: false)
             }
         }
+        if let request, request.token != c.lastToken, let location = location(of: request, in: v.attributedText) {
+            c.lastToken = request.token
+            DispatchQueue.main.async {
+                v.layoutIfNeeded()
+                guard let start = v.position(from: v.beginningOfDocument, offset: location) else { return }
+                let rect = v.caretRect(for: start)
+                let maxY = max(0, v.contentSize.height - v.bounds.height + v.adjustedContentInset.bottom)
+                let y = max(-v.adjustedContentInset.top, min(rect.minY - insets.top, maxY))
+                v.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+            }
+        }
+    }
+
+    /// Where a verse anchor ("chapter2_verse4") or a searched word is in the chapter.
+    private func location(of request: AnchorRequest, in text: NSAttributedString) -> Int? {
+        if let anchor = request.anchor,
+           let m = anchor.range(of: "verse(\\d+)", options: .regularExpression),
+           let v = Int(anchor[m].dropFirst(5)),
+           let at = PageText.location(ofVerse: v, in: text) {
+            return at
+        }
+        if let find = request.find {
+            let r = (text.string as NSString).range(of: find, options: [.caseInsensitive, .diacriticInsensitive])
+            if r.location != NSNotFound { return r.location }
+        }
+        return nil
     }
 }
 

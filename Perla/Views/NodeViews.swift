@@ -366,10 +366,15 @@ struct TextBlock: View {
             ?? UIColor((node.role == .caption || node.role == .note) ? JWColor.subdued : JWColor.text)
         // Paragraphs on a page can be highlighted; text shown in a sheet can only be selected.
         let key = env.doc.hasPrefix("ref-") ? nil : HighlightStore.key(pubID: env.pubID, doc: env.doc, node: node.id)
-        let text = PageText.build(node, size: size, env: env, heading: heading, showIcon: showIcon, baseColor: color,
-                                  centered: centered, highlights: key.flatMap { highlights.marks[$0] } ?? [],
-                                  marker: marker)
-        RichText(text: text, highlightKey: key) { url in openURL(url) }
+        let marks = key.flatMap { highlights.marks[$0] } ?? []
+        // Everything this paragraph's text depends on; it's rebuilt only when this changes.
+        let signature = "\(env.doc)|\(node.id)|\(size)|\(env.serif)|\(env.findTerm ?? "")|\(env.verseLinks)|"
+            + "\(env.notedVerses.sorted())|\(centered)|\(colorName ?? "")|\(marker ?? "")|"
+            + marks.map { "\($0.location),\($0.length),\($0.tint.rawValue)" }.joined(separator: ";")
+        RichText(signature: signature, build: {
+            PageText.build(node, size: size, env: env, heading: heading, showIcon: showIcon, baseColor: color,
+                           centered: centered, highlights: marks, marker: marker)
+        }, highlightKey: key) { url in openURL(url) }
             .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
             .padding(.leading, env.bible && node.has("sz") ? env.base * 1.6 : 0)
     }
