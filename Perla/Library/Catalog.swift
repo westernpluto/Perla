@@ -98,7 +98,7 @@ struct CatalogItem: Identifiable, Hashable {
 /// del Nuevo Mundo (edición de estudio)"), fetched once and kept.
 enum CatalogNames {
     private static let namesKey = "catalogNames"
-    private static let coversKey = "catalogCovers"
+    private static let coversKey = "catalogCovers2"
 
     private static func id(_ symbol: String, _ issue: String, _ lang: String) -> String {
         issue.isEmpty ? "\(lang)_\(symbol)" : "\(lang)_\(symbol)_\(issue)"
