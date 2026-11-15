@@ -514,7 +514,7 @@ struct MediaFile: Hashable, Identifiable {
     let height: Int
     let size: Int64
     var id: URL { url }
-    var label: String { height > 0 ? "\(height)p" : "Audio" }
+    var label: String { height > 0 ? "\(height)p" : L("Audio") }
     var isAudio: Bool { height == 0 || url.pathExtension.lowercased() == "mp3" }
 }
 

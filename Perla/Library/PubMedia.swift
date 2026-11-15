@@ -30,7 +30,7 @@ enum PubMedia {
         ]
         if !issue.isEmpty { items.append(URLQueryItem(name: "issue", value: issue)) }
         c.queryItems = items
-        guard let url = c.url else { throw Failure.network("Bad address.") }
+        guard let url = c.url else { throw Failure.network(L("Bad address.")) }
 
         var req = URLRequest(url: url)
         req.timeoutInterval = 30

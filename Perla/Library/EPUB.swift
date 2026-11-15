@@ -23,7 +23,7 @@ struct ParsedEPUB {
 enum EPUBError: LocalizedError {
     case unreadable(String)
     var errorDescription: String? {
-        switch self { case .unreadable(let m): return "Couldn't open this publication (\(m))." }
+        switch self { case .unreadable(let m): return L("Couldn't open this publication (%@).", m) }
     }
 }
 

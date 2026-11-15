@@ -308,7 +308,8 @@ enum PageText {
             while search.length > 0 {
                 let r = ns.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], range: search)
                 guard r.location != NSNotFound else { break }
-                out.addAttribute(.backgroundColor, value: UIColor.tintColor.withAlphaComponent(0.35), range: r)
+                // The searched word stands out the same way it does in the results.
+                out.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.45), range: r)
                 search = NSRange(location: NSMaxRange(r), length: out.length - NSMaxRange(r))
             }
         }

@@ -52,19 +52,42 @@ struct BibleContents: View {
 }
 
 struct SearchView: View {
+    /// The snippet with every match of the query in bold on a soft highlight.
+    static func marked(_ text: String, _ query: String) -> AttributedString {
+        var out = AttributedString(text)
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return out }
+        var start = out.startIndex
+        while start < out.endIndex,
+              let r = out[start..<out.endIndex].range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) {
+            out[r].inlinePresentationIntent = .stronglyEmphasized
+            out[r].foregroundColor = .primary
+            out[r].backgroundColor = Color.yellow.opacity(0.35)
+            start = r.upperBound
+        }
+        return out
+    }
+
     @EnvironmentObject private var library: LibraryStore
     @State private var query = ""
     @State private var results: [SearchIndex.Hit] = []
     @State private var searching = false
 
     var body: some View {
-        List(results) { hit in
+        List {
+            if !results.isEmpty {
+                Text("\(results.count) results")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(results) { hit in
             NavigationLink(value: ReaderRoute(pubID: hit.pubID, href: hit.href, find: query)) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(hit.label)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
-                    Text(hit.snippet)
+                    Text(Self.marked(hit.snippet, query))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
@@ -74,6 +97,7 @@ struct SearchView: View {
                         .lineLimit(1)
                 }
                 .padding(.vertical, 2)
+            }
             }
         }
         .listStyle(.plain)

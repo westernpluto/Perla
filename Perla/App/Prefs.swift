@@ -74,10 +74,31 @@ enum AppLanguage {
 
     /// The translations for the current language (English text is the key, so English needs none).
     static var bundle: Bundle {
-        if let path = Bundle.main.path(forResource: code, ofType: "lproj"), let b = Bundle(path: path) { return b }
+        if code != "en", let path = Bundle.main.path(forResource: code, ofType: "lproj"), let b = Bundle(path: path) { return b }
         return Bundle.main
     }
+
+    /// Makes every piece of interface text — SwiftUI labels, buttons, tabs and titles as well as text
+    /// looked up in code — come from the chosen language's translations, at once and without a restart.
+    static func install() {
+        #if canImport(ObjectiveC)
+        if !(Bundle.main is TranslatedBundle) { object_setClass(Bundle.main, TranslatedBundle.self) }
+        #endif
+    }
 }
+
+#if canImport(ObjectiveC)
+/// The app's main bundle, answering text lookups from the chosen language's .lproj folder.
+private final class TranslatedBundle: Bundle, @unchecked Sendable {
+    override func localizedString(forKey key: String, value: String?, table tableName: String?) -> String {
+        let code = AppLanguage.code
+        guard code != "en", let path = super.path(forResource: code, ofType: "lproj"), let lang = Bundle(path: path) else {
+            return super.localizedString(forKey: key, value: value, table: tableName)
+        }
+        return lang.localizedString(forKey: key, value: value, table: tableName)
+    }
+}
+#endif
 
 /// Interface text in the app's language. The English text is the key.
 func L(_ key: String) -> String {

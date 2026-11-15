@@ -5,6 +5,10 @@ struct PerlaApp: App {
     @StateObject private var library = LibraryStore.shared
     @AppStorage(Prefs.Key.appLang) private var appLang = ""
 
+    init() {
+        AppLanguage.install()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

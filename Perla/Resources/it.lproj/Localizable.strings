@@ -128,3 +128,11 @@
 "Download %@" = "Scarica %@";
 "Earlier" = "Precedenti";
 "Later" = "Successive";
+"Previous" = "Precedente";
+"Next" = "Successivo";
+"Books and chapters" = "Libri e capitoli";
+"Contents" = "Indice";
+"Audio" = "Audio";
+"Couldn't open this publication (%@)." = "Impossibile aprire questa pubblicazione (%@).";
+"Bad address." = "Indirizzo non valido.";
+"%lld results" = "%lld risultati";

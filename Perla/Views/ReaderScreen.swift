@@ -176,7 +176,7 @@ struct ReaderScreen: View {
                 Button {
                     reader.previous()
                 } label: {
-                    Label(reader.previousTitle ?? "Previous", systemImage: "chevron.backward")
+                    Label(reader.previousTitle ?? L("Previous"), systemImage: "chevron.backward")
                         .lineLimit(1)
                 }
             }
@@ -185,7 +185,7 @@ struct ReaderScreen: View {
                 Button {
                     reader.next()
                 } label: {
-                    Label(reader.nextTitle ?? "Next", systemImage: "chevron.forward")
+                    Label(reader.nextTitle ?? L("Next"), systemImage: "chevron.forward")
                         .labelStyle(TrailingIconLabelStyle())
                         .lineLimit(1)
                 }
@@ -230,7 +230,7 @@ struct ReaderScreen: View {
             } label: {
                 Image(systemName: reader.isBible ? "square.grid.3x3" : "list.bullet")
             }
-            .accessibilityLabel(reader.isBible ? "Books and chapters" : "Contents")
+            .accessibilityLabel(reader.isBible ? L("Books and chapters") : L("Contents"))
 
             Button {
                 showText = true
