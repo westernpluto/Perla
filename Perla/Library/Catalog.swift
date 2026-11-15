@@ -141,6 +141,18 @@ enum CatalogNames {
         return changed
     }
 
+    static func setCover(_ url: URL, symbol: String, issue: String = "", lang: String) {
+        var covers = (UserDefaults.standard.dictionary(forKey: coversKey) as? [String: String]) ?? [:]
+        covers[id(symbol, issue, lang)] = url.absoluteString
+        UserDefaults.standard.set(covers, forKey: coversKey)
+    }
+
+    /// The cover address jw.org's website uses ("…/img/p/nwt/S/pt/nwt_S_lg.jpg"), for publications
+    /// whose download service gives none.
+    static func websiteCover(symbol: String, lang: String) -> URL? {
+        URL(string: "https://cms-imgp.jw-cdn.org/img/p/\(symbol)/\(lang)/pt/\(symbol)_\(lang)_lg.jpg")
+    }
+
     /// Several at once (the Library's lists).
     static func load(symbols: [String], lang: String) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in

@@ -126,7 +126,7 @@ struct CatalogGrid: View {
             if let pub = library.installed(symbol: entry.file, issue: entry.issue, lang: lang) {
                 NavigationLink(value: PubRoute(pubID: pub.id)) {
                     CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption,
-                                image: pub.isStudyBible ? nil : library.coverImage(pub), cover: cover,
+                                image: pub.isStudyBible && cover != nil ? nil : library.coverImage(pub), cover: cover,
                                 downloaded: true, downloading: false)
                 }
             } else {
@@ -140,7 +140,36 @@ struct CatalogGrid: View {
         .buttonStyle(.plain)
         .task(id: entry.id + lang) {
             if await CatalogNames.load(symbol: entry.symbol, issue: entry.issue, lang: lang) { namesVersion += 1 }
+            if await Self.findCover(symbol: entry.symbol, issue: entry.issue, lang: lang) { namesVersion += 1 }
         }
+    }
+}
+
+extension CatalogGrid {
+    /// When jw.org's download service has no cover: the website's cover, then the cover inside the
+    /// publication's own download, then (Study Edition) the English cover.
+    static func findCover(symbol: String, issue: String, lang: String) async -> Bool {
+        guard CatalogNames.cover(symbol: symbol, issue: issue, lang: lang) == nil else { return false }
+        if issue.isEmpty, let web = CatalogNames.websiteCover(symbol: symbol, lang: lang) {
+            var req = URLRequest(url: web)
+            req.httpMethod = "HEAD"
+            if let (_, r) = try? await URLSession.shared.data(for: req), (r as? HTTPURLResponse)?.statusCode == 200 {
+                CatalogNames.setCover(web, symbol: symbol, issue: issue, lang: lang)
+                return true
+            }
+        }
+        if symbol != "nwtsty", let file = await RemoteCover.fetch(symbol: symbol, issue: issue, lang: lang) {
+            CatalogNames.setCover(file, symbol: symbol, issue: issue, lang: lang)
+            return true
+        }
+        if symbol == "nwtsty", lang != "E" {
+            _ = await CatalogNames.load(symbol: symbol, lang: "E")
+            if let english = CatalogNames.cover(symbol: symbol, lang: "E") {
+                CatalogNames.setCover(english, symbol: symbol, issue: issue, lang: lang)
+                return true
+            }
+        }
+        return false
     }
 }
 
