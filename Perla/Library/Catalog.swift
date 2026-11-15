@@ -149,8 +149,16 @@ enum CatalogNames {
 
     /// The cover address jw.org's website uses ("…/img/p/nwt/S/pt/nwt_S_lg.jpg"), for publications
     /// whose download service gives none.
-    static func websiteCover(symbol: String, lang: String) -> URL? {
-        URL(string: "https://cms-imgp.jw-cdn.org/img/p/\(symbol)/\(lang)/pt/\(symbol)_\(lang)_lg.jpg")
+    static func websiteCovers(symbol: String, lang: String) -> [URL] {
+        let base = "https://cms-imgp.jw-cdn.org/img/p/"
+        var out: [String] = []
+        if symbol == "nwtsty" {
+            // The Study Edition's cover is filed under its document number:
+            // …/img/p/1001070000/S/art/1001070000_S_cvr_xs.jpg
+            out += ["lg", "md", "sm", "xs"].map { "\(base)1001070000/\(lang)/art/1001070000_\(lang)_cvr_\($0).jpg" }
+        }
+        out.append("\(base)\(symbol)/\(lang)/pt/\(symbol)_\(lang)_lg.jpg")
+        return out.compactMap(URL.init(string:))
     }
 
     /// Several at once (the Library's lists).

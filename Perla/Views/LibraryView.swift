@@ -150,12 +150,14 @@ extension CatalogGrid {
     /// publication's own download, then (Study Edition) the English cover.
     static func findCover(symbol: String, issue: String, lang: String) async -> Bool {
         guard CatalogNames.cover(symbol: symbol, issue: issue, lang: lang) == nil else { return false }
-        if issue.isEmpty, let web = CatalogNames.websiteCover(symbol: symbol, lang: lang) {
-            var req = URLRequest(url: web)
-            req.httpMethod = "HEAD"
-            if let (_, r) = try? await URLSession.shared.data(for: req), (r as? HTTPURLResponse)?.statusCode == 200 {
-                CatalogNames.setCover(web, symbol: symbol, issue: issue, lang: lang)
-                return true
+        if issue.isEmpty {
+            for web in CatalogNames.websiteCovers(symbol: symbol, lang: lang) {
+                var req = URLRequest(url: web)
+                req.httpMethod = "HEAD"
+                if let (_, r) = try? await URLSession.shared.data(for: req), (r as? HTTPURLResponse)?.statusCode == 200 {
+                    CatalogNames.setCover(web, symbol: symbol, issue: issue, lang: lang)
+                    return true
+                }
             }
         }
         if symbol != "nwtsty", let file = await RemoteCover.fetch(symbol: symbol, issue: issue, lang: lang) {
