@@ -38,6 +38,7 @@ struct ReaderScreen: View {
     @State private var showContents = false
     @State private var showText = false
     @State private var zoomImage: ZoomItem?
+    @ObservedObject private var highlights = HighlightStore.shared
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     init(pub: InstalledPub, href: String?, find: String? = nil) {
@@ -97,6 +98,48 @@ struct ReaderScreen: View {
         let env = PageEnv(base: base, serif: serif || reader.isBible, bible: reader.isBible, pubID: reader.pub.id,
                           bleed: side, findTerm: reader.findTerm, doc: reader.currentFile,
                           verseLinks: reader.pub.isStudyBible, notedVerses: reader.notedVerses)
+        if reader.isBible {
+            bibleChapter(env: env, side: side)
+        } else {
+            pageList(env: env, column: column)
+        }
+    }
+
+    /// A Bible chapter as one continuous text, so selections can run across verses.
+    @ViewBuilder
+    private func bibleChapter(env: PageEnv, side: CGFloat) -> some View {
+        let key = HighlightStore.key(pubID: reader.pub.id, doc: reader.currentFile, node: -1)
+        let text = PageText.chapter(reader.doc, env: env, highlights: highlights.marks[key] ?? [],
+                                    previous: reader.hasPrevious ? reader.previousTitle : nil,
+                                    next: reader.hasNext ? reader.nextTitle : nil)
+        ChapterText(text: text, highlightKey: key,
+                    insets: UIEdgeInsets(top: 14, left: side, bottom: 48, right: side),
+                    target: chapterTarget(text)) { url in _ = reader.handleLink(url) }
+            .ignoresSafeArea(edges: .bottom)
+            .overlay {
+                if reader.loading && reader.doc.nodes.isEmpty { ProgressView() }
+            }
+            .simultaneousGesture(swipe)
+    }
+
+    /// The verse or searched word the chapter was opened at.
+    private func chapterTarget(_ text: NSAttributedString) -> (location: Int, token: UUID)? {
+        guard let request = reader.anchorRequest else { return nil }
+        if let anchor = request.anchor,
+           let m = anchor.range(of: "verse(\\d+)", options: .regularExpression),
+           let v = Int(anchor[m].dropFirst(5)),
+           let at = PageText.location(ofVerse: v, in: text) {
+            return (at, request.token)
+        }
+        if let find = request.find {
+            let r = (text.string as NSString).range(of: find, options: [.caseInsensitive, .diacriticInsensitive])
+            if r.location != NSNotFound { return (r.location, request.token) }
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func pageList(env: PageEnv, column: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {

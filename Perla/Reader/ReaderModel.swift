@@ -18,6 +18,13 @@ struct WebLink: Identifiable {
     let url: URL
 }
 
+/// A place inside a Bible chapter to show: a verse anchor ("chapter2_verse4") or a searched word.
+struct AnchorRequest: Equatable {
+    var anchor: String?
+    var find: String?
+    let token = UUID()
+}
+
 struct ScrollRequest: Equatable {
     let node: Int
     let token = UUID()
@@ -58,6 +65,8 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var loadFailed = false
     @Published private(set) var findTerm: String?
     @Published var scrollRequest: ScrollRequest?
+    /// Bible chapters are one text: places inside it are asked for by anchor or search word.
+    @Published var anchorRequest: AnchorRequest?
     @Published var reference: ReferenceSheet?
     /// Another publication (a Bible study lesson, a cited article, a Bible chapter) to open on top.
     @Published var pushRef: PubRef?
@@ -140,6 +149,7 @@ final class ReaderModel: ObservableObject {
         if pageID == currentFile, !doc.nodes.isEmpty {
             if !researchPage, let fragment, let id = nodeID(forAnchor: fragment) { requestScroll(to: id) }
             if let find { applyFind(find) }
+            if isBible, fragment != nil || find != nil { anchorRequest = AnchorRequest(anchor: fragment, find: find) }
             return
         }
 
@@ -233,6 +243,7 @@ final class ReaderModel: ObservableObject {
         } else if let fragment, let id = nodeID(forAnchor: fragment) {
             requestScroll(to: id)
         }
+        anchorRequest = isBible && (fragment != nil || find != nil) ? AnchorRequest(anchor: fragment, find: find) : nil
 
         importedHere = ImportedAnswers.shared.answers(for: list.map(\.text))
         for q in list {
@@ -314,6 +325,8 @@ final class ReaderModel: ObservableObject {
                                   title: query["t"].flatMap { $0.isEmpty ? nil : $0 } ?? L("Song %@", n))
                 afterSheet { $0.media = item }
             }
+        case "nav":
+            if query["d"] == "prev" { previous() } else { next() }
         case "verse":
             if let v = query["v"].flatMap({ Int($0) }) { showStudyNotes(verse: v) }
         case "bible":

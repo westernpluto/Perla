@@ -91,6 +91,95 @@ final class HighlightStore: ObservableObject {
 
 // MARK: - Text view
 
+extension NSAttributedString.Key {
+    /// Text that is drawn but left out when copying: note marks and indents.
+    static let perlaNoCopy = NSAttributedString.Key("perlaNoCopy")
+    /// The verse a Bible verse number starts.
+    static let perlaVerse = NSAttributedString.Key("perlaVerse")
+}
+
+/// iOS's text view, copying clean text: no note marks (*) or indent characters, single spaces.
+final class PerlaTextView: UITextView {
+    static func clean(_ text: NSAttributedString, range: NSRange) -> String {
+        guard range.length > 0, NSMaxRange(range) <= text.length else { return "" }
+        var out = ""
+        text.enumerateAttribute(.perlaNoCopy, in: range) { value, r, _ in
+            if value == nil { out += (text.string as NSString).substring(with: r) }
+        }
+        out = out.replacingOccurrences(of: "\u{2028}", with: "\n")
+        out = out.replacingOccurrences(of: "[ \t\u{00A0}\u{2002}\u{2003}\u{2009}]+", with: " ", options: .regularExpression)
+        out = out.replacingOccurrences(of: " *\n *", with: "\n", options: .regularExpression)
+        out = out.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    override func copy(_ sender: Any?) {
+        let text = Self.clean(attributedText, range: selectedRange)
+        guard !text.isEmpty else { return super.copy(sender) }
+        UIPasteboard.general.string = text
+    }
+}
+
+/// Links and the selection menu (Highlight, Copy, Share…) for Perla's text views.
+@MainActor
+class TextViewCoordinator: NSObject, UITextViewDelegate {
+    var onLink: (URL) -> Void = { _ in }
+    /// Where highlights are kept; nil when the text can't be highlighted (sheets).
+    var highlightKey: String?
+
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem,
+                  defaultAction: UIAction) -> UIAction? {
+        guard case .link(let url) = textItem.content else { return defaultAction }
+        return UIAction { [weak self] _ in self?.onLink(url) }
+    }
+
+    func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
+                  defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+        // Long-pressing a link just opens it, like tapping.
+        if case .link(let url) = textItem.content {
+            onLink(url)
+            return nil
+        }
+        return UITextItem.MenuConfiguration(menu: defaultMenu)
+    }
+
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
+                  suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let key = highlightKey, range.length > 0 else { return UIMenu(children: suggestedActions) }
+        let store = HighlightStore.shared
+        var items: [UIMenuElement] = HighlightStore.Tint.allCases.map { tint in
+            UIAction(title: tint.name, image: UIImage(systemName: "circle.fill")?
+                .withTintColor(tint.color, renderingMode: .alwaysOriginal)) { _ in
+                store.add(range, tint: tint, key: key)
+                textView.selectedRange = NSRange(location: range.location, length: 0)
+            }
+        }
+        if store.overlaps(range, key: key) {
+            items.append(UIAction(title: L("Remove highlight"), image: UIImage(systemName: "eraser"),
+                                  attributes: .destructive) { _ in
+                store.remove(range, key: key)
+                textView.selectedRange = NSRange(location: range.location, length: 0)
+            })
+        }
+        let highlight = UIMenu(title: L("Highlight"), image: UIImage(systemName: "highlighter"), children: items)
+        return UIMenu(children: [highlight] + suggestedActions)
+    }
+}
+
+private func makeTextView(_ coordinator: TextViewCoordinator, scrolls: Bool) -> PerlaTextView {
+    let v = PerlaTextView()
+    v.isEditable = false
+    v.isSelectable = true
+    v.isScrollEnabled = scrolls
+    v.backgroundColor = .clear
+    v.textContainerInset = .zero
+    v.textContainer.lineFragmentPadding = 0
+    v.linkTextAttributes = [:]
+    v.delegate = coordinator
+    v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    return v
+}
+
 /// A paragraph drawn by iOS's own text view, so you can select words and highlight them.
 /// Links open through the page's link handler.
 struct RichText: UIViewRepresentable {
@@ -99,73 +188,71 @@ struct RichText: UIViewRepresentable {
     let highlightKey: String?
     let onLink: (URL) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> TextViewCoordinator { TextViewCoordinator() }
 
-    func makeUIView(context: Context) -> UITextView {
-        let v = UITextView()
-        v.isEditable = false
-        v.isSelectable = true
-        v.isScrollEnabled = false
-        v.backgroundColor = .clear
-        v.textContainerInset = .zero
-        v.textContainer.lineFragmentPadding = 0
-        v.linkTextAttributes = [:]
-        v.delegate = context.coordinator
-        v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return v
-    }
+    func makeUIView(context: Context) -> PerlaTextView { makeTextView(context.coordinator, scrolls: false) }
 
-    func updateUIView(_ v: UITextView, context: Context) {
-        context.coordinator.parent = self
+    func updateUIView(_ v: PerlaTextView, context: Context) {
+        context.coordinator.onLink = onLink
+        context.coordinator.highlightKey = highlightKey
         if v.attributedText != text { v.attributedText = text }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: PerlaTextView, context: Context) -> CGSize? {
         let width = proposal.width ?? 320
         let fit = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         return CGSize(width: width, height: ceil(fit.height))
     }
+}
 
-    @MainActor
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: RichText?
+/// A whole Bible chapter as one text, so a selection can run across verses and paragraphs.
+/// It scrolls itself, and jumps to a verse or a search match when asked.
+struct ChapterText: UIViewRepresentable {
+    let text: NSAttributedString
+    let highlightKey: String?
+    /// Space around the text (side margins, top and bottom).
+    let insets: UIEdgeInsets
+    /// Where to scroll: a character position, with a token so the same spot can be asked for again.
+    let target: (location: Int, token: UUID)?
+    let onLink: (URL) -> Void
 
-        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem,
-                      defaultAction: UIAction) -> UIAction? {
-            guard case .link(let url) = textItem.content else { return defaultAction }
-            return UIAction { [weak self] _ in self?.parent?.onLink(url) }
+    final class Coordinator: TextViewCoordinator {
+        var lastToken: UUID?
+        var lastText: NSAttributedString?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> PerlaTextView {
+        let v = makeTextView(context.coordinator, scrolls: true)
+        v.alwaysBounceVertical = true
+        v.keyboardDismissMode = .interactive
+        return v
+    }
+
+    func updateUIView(_ v: PerlaTextView, context: Context) {
+        let c = context.coordinator
+        c.onLink = onLink
+        c.highlightKey = highlightKey
+        if v.textContainerInset != insets { v.textContainerInset = insets }
+        if !(c.lastText?.isEqual(to: text) ?? false) {
+            let offset = v.contentOffset
+            let sameChapter = c.lastText?.string == text.string
+            v.attributedText = text
+            c.lastText = text
+            // Re-styling (a highlight, the text size) keeps your place; a new chapter starts at the top.
+            if sameChapter { v.setContentOffset(offset, animated: false) } else { v.setContentOffset(.zero, animated: false) }
         }
-
-        func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
-                      defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
-            // Long-pressing a link just opens it, like tapping.
-            if case .link(let url) = textItem.content {
-                parent?.onLink(url)
-                return nil
+        if let target, target.token != c.lastToken, target.location < text.length {
+            c.lastToken = target.token
+            DispatchQueue.main.async {
+                v.layoutIfNeeded()
+                let range = NSRange(location: target.location, length: 0)
+                guard let start = v.position(from: v.beginningOfDocument, offset: range.location) else { return }
+                let rect = v.caretRect(for: start)
+                let y = max(0, min(rect.minY - insets.top, v.contentSize.height - v.bounds.height + v.adjustedContentInset.bottom))
+                v.setContentOffset(CGPoint(x: 0, y: y - v.adjustedContentInset.top), animated: true)
             }
-            return UITextItem.MenuConfiguration(menu: defaultMenu)
-        }
-
-        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
-                      suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard let key = parent?.highlightKey, range.length > 0 else { return UIMenu(children: suggestedActions) }
-            let store = HighlightStore.shared
-            var items: [UIMenuElement] = HighlightStore.Tint.allCases.map { tint in
-                UIAction(title: tint.name, image: UIImage(systemName: "circle.fill")?
-                    .withTintColor(tint.color, renderingMode: .alwaysOriginal)) { _ in
-                    store.add(range, tint: tint, key: key)
-                    textView.selectedRange = NSRange(location: range.location, length: 0)
-                }
-            }
-            if store.overlaps(range, key: key) {
-                items.append(UIAction(title: L("Remove highlight"), image: UIImage(systemName: "eraser"),
-                                      attributes: .destructive) { _ in
-                    store.remove(range, key: key)
-                    textView.selectedRange = NSRange(location: range.location, length: 0)
-                })
-            }
-            let highlight = UIMenu(title: L("Highlight"), image: UIImage(systemName: "highlighter"), children: items)
-            return UIMenu(children: [highlight] + suggestedActions)
         }
     }
 }
@@ -215,7 +302,7 @@ enum PageText {
 
         if env.bible, node.has("sb"), !node.runs.contains(where: \.chapterNum) {
             // Bible paragraphs start with an indent, as in JW Library.
-            out.append(NSAttributedString(string: "\u{2003}\u{2003}", attributes: [.font: plainFont]))
+            out.append(NSAttributedString(string: "\u{2003}\u{2003}", attributes: [.font: plainFont, .perlaNoCopy: true]))
         }
 
         var runs = node.runs
@@ -250,7 +337,9 @@ enum PageText {
             var color: UIColor = r.color.flatMap(JWColor.uiColor) ?? baseColor
             var offset: CGFloat = 0
 
+            var verseHere: Int?
             if r.chapterNum {
+                verseHere = 1
                 runSize = size * 2.1
                 weight = .bold
                 runSerif = false
@@ -261,10 +350,13 @@ enum PageText {
                 runSerif = false
                 color = UIColor(JWColor.subdued)
             } else if r.isNoteMark {
-                runSize = size * 0.7
-                offset = size * 0.38
+                // Note marks: large enough to see and tap, raised a little.
+                runSize = size * 0.95
+                weight = .bold
+                offset = size * 0.28
                 runSerif = false
             } else if r.sup && (env.bible || r.bold) {
+                if env.bible, let v = Int(r.text.trimmingCharacters(in: .whitespaces)) { verseHere = v }
                 // Verse numbers: bold, blue, on the line and at text size.
                 weight = .bold
                 runSerif = false
@@ -280,6 +372,11 @@ enum PageText {
                 .foregroundColor: color,
             ]
             if offset != 0 { attrs[.baselineOffset] = offset }
+            if r.isNoteMark {
+                // A wider target around the mark, and never part of copied text.
+                text = "\u{2009}" + text.trimmingCharacters(in: .whitespaces) + "\u{2009}"
+                attrs[.perlaNoCopy] = true
+            }
             if let bg = r.background.flatMap(JWColor.uiBackground) {
                 // A label such as the orange "A" on a picture.
                 text = "\u{2009}" + text + "\u{2009}"
@@ -299,6 +396,7 @@ enum PageText {
                     attrs[.foregroundColor] = UIColor(JWColor.subdued)
                 }
             }
+            if let verseHere { attrs[.perlaVerse] = verseHere }
             out.append(NSAttributedString(string: text, attributes: attrs))
         }
 
@@ -328,5 +426,94 @@ enum PageText {
             }
         }
         return out
+    }
+}
+
+extension PageText {
+    /// A whole Bible chapter as one text: its paragraphs, headings and poetry lines with the page's
+    /// spacing, then the footnotes, then links to the previous and next chapter.
+    static func chapter(_ doc: Document, env: PageEnv, highlights: [HighlightStore.Mark],
+                        previous: String?, next: String?) -> NSAttributedString {
+        var blocks: [DocNode] = []
+        func collect(_ n: DocNode) {
+            if n.kind == .text { blocks.append(n) } else { n.children.forEach(collect) }
+        }
+        doc.nodes.forEach(collect)
+        var notes: [DocNode] = []
+        doc.footnoteNodes.forEach { $0.walk { if $0.kind == .text { notes.append($0) } } }
+
+        let out = NSMutableAttributedString()
+        func add(_ node: DocNode, prev: DocNode?, extraSpace: CGFloat = 0) {
+            let size = TextBlock.size(node, env: env, inherited: Inherited())
+            let heading = PageLayout.isHeading(node)
+            let color = node.style.color.flatMap(JWColor.uiColor)
+                ?? UIColor((node.role == .caption || node.role == .note) ? JWColor.subdued : JWColor.text)
+            let piece = NSMutableAttributedString(attributedString: build(
+                node, size: size, env: env, heading: heading, showIcon: true, baseColor: color,
+                centered: node.style.centered, highlights: [], marker: node.listMarker))
+            let all = NSRange(location: 0, length: piece.length)
+            let para = ((piece.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            para.paragraphSpacingBefore = prev == nil ? 0 : PageLayout.gap(prev: prev, node: node, env: env) + extraSpace
+            if env.bible && node.has("sz") {
+                // Poetry lines are indented, as in print.
+                para.firstLineHeadIndent += env.base * 1.6
+                para.headIndent += env.base * 1.6
+            }
+            piece.addAttribute(.paragraphStyle, value: para, range: all)
+            if out.length > 0 {
+                out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: para, .font: UIFont.systemFont(ofSize: size)]))
+            }
+            out.append(piece)
+        }
+        var prev: DocNode?
+        for b in blocks {
+            add(b, prev: prev)
+            prev = b
+        }
+        for (i, n) in notes.enumerated() {
+            add(n, prev: prev, extraSpace: i == 0 ? env.base * 1.5 : 0)
+            prev = n
+        }
+        if previous != nil || next != nil {
+            let para = NSMutableParagraphStyle()
+            para.paragraphSpacingBefore = env.base * 2.5
+            para.alignment = .center
+            let font = UIFont.systemFont(ofSize: env.base * 0.9, weight: .semibold)
+            var line = ""
+            var links: [(NSRange, URL)] = []
+            if let previous {
+                let t = "‹ " + previous
+                links.append((NSRange(location: 0, length: (t as NSString).length), URL(string: "perla://nav?d=prev")!))
+                line += t
+            }
+            if let next {
+                if !line.isEmpty { line += "      " }
+                let t = next + " ›"
+                links.append((NSRange(location: (line as NSString).length, length: (t as NSString).length), URL(string: "perla://nav?d=next")!))
+                line += t
+            }
+            let nav = NSMutableAttributedString(string: "\n" + line, attributes: [
+                .font: font, .foregroundColor: UIColor(JWColor.link), .paragraphStyle: para, .perlaNoCopy: true,
+            ])
+            for (r, url) in links { nav.addAttribute(.link, value: url, range: NSRange(location: r.location + 1, length: r.length)) }
+            out.append(nav)
+        }
+        for m in highlights where NSMaxRange(m.range) <= out.length {
+            out.addAttribute(.backgroundColor, value: m.tint.color, range: m.range)
+        }
+        return out
+    }
+
+    /// Where verse `v` starts in a chapter built by `chapter(_:…)`.
+    static func location(ofVerse v: Int, in text: NSAttributedString) -> Int? {
+        var found: Int?
+        text.enumerateAttribute(.perlaVerse, in: NSRange(location: 0, length: text.length)) { value, r, stop in
+            if (value as? Int) == v {
+                found = r.location
+                stop.pointee = true
+            }
+        }
+        return found
     }
 }
