@@ -35,6 +35,7 @@ struct CatalogItem: Identifiable, Hashable {
         // The Bible: the Study Edition is only published as JWPUB and PDF, so Perla reads the 2013
         // revision (EPUB) with the Study Edition's notes beside it. One entry, so one download.
         CatalogItem(symbol: "nwtsty", title: "New World Translation (Study Edition)", category: .bible),
+        CatalogItem(symbol: "nwt", title: "New World Translation", category: .bible),
         CatalogItem(symbol: "bi12", title: "New World Translation (1984 Edition)", category: .bible),
 
         CatalogItem(symbol: "lff", title: "Enjoy Life Forever!"),
@@ -82,12 +83,10 @@ struct CatalogItem: Identifiable, Hashable {
     ]
 
     /// Kept for older call sites: everything except the Bible.
-    static var books: [CatalogItem] { all + [CatalogItem(symbol: "nwt", title: "New World Translation", category: .bible)] }
+    static var books: [CatalogItem] { all }
 
     static func items(in category: Category) -> [CatalogItem] { all.filter { $0.category == category } }
 
-    /// The EPUB that is downloaded for this entry (the Study Edition reads the 2013 Bible).
-    var downloadSymbol: String { symbol == "nwtsty" ? "nwt" : symbol }
 
     /// The title in the publication language, once jw.org has given it; English until then.
     func localizedTitle(lang: String) -> String {

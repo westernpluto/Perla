@@ -7,7 +7,7 @@ struct BibleView: View {
 
     var body: some View {
         Group {
-            if let bible = library.installed(symbol: "nwt", issue: "", lang: lang) {
+            if let bible = library.bible(lang: lang) {
                 BibleContents(bible: bible)
             } else {
                 ContentUnavailableView {
@@ -15,19 +15,14 @@ struct BibleView: View {
                 } description: {
                     Text("Download the New World Translation in \(PubLanguage.find(lang).name) to read it offline.")
                 } actions: {
-                    if library.isDownloading(symbol: "nwt", issue: "", lang: lang) {
-                        ProgressView()
+                    if let fraction = library.progress(symbol: "nwtsty", issue: "", lang: lang)
+                        ?? library.progress(symbol: "nwt", issue: "", lang: lang) {
+                        ProgressView(value: fraction).frame(maxWidth: 220)
                     } else {
-                        Button("Download Bible") {
-                            Task {
-                                do {
-                                    try await library.ensure(symbol: "nwt", lang: lang)
-                                } catch {
-                                    self.error = error.localizedDescription
-                                }
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
+                        Button("Download Study Edition") { download("nwtsty") }
+                            .buttonStyle(.borderedProminent)
+                        Button("Download without study notes") { download("nwt") }
+                            .buttonStyle(.bordered)
                     }
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(.red)
@@ -38,6 +33,16 @@ struct BibleView: View {
         .navigationTitle("Bible")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { SettingsButton() }
+        }
+    }
+
+    private func download(_ symbol: String) {
+        Task {
+            do {
+                try await library.ensure(symbol: symbol, lang: lang)
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
     }
 }

@@ -215,7 +215,7 @@ final class ReaderModel: ObservableObject {
         }
         questions = list
         notedVerses = []
-        if isBible, let book = currentBook, let chapter = currentChapter {
+        if pub.isStudyBible, let book = currentBook, let chapter = currentChapter {
             let lang = pub.lang
             let shown = file
             Task { @MainActor [weak self] in
@@ -424,7 +424,7 @@ final class ReaderModel: ObservableObject {
         var ref = PubRef(symbol: "nwt", bibleBook: book, bibleChapter: chapter, lang: pub.lang, label: label)
         ref.bibleVerse = verse
         let library = LibraryStore.shared
-        let biblePub = isBible ? pub : library.installed(symbol: "nwt", issue: "", lang: pub.lang)
+        let biblePub = isBible ? pub : library.bible(lang: pub.lang)
         guard let verse, let biblePub else {
             openRef(ref)
             return

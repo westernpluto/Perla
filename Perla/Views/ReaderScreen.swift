@@ -96,7 +96,7 @@ struct ReaderScreen: View {
         let column = max(200, width - side * 2)
         let env = PageEnv(base: base, serif: serif || reader.isBible, bible: reader.isBible, pubID: reader.pub.id,
                           bleed: side, findTerm: reader.findTerm, doc: reader.currentFile,
-                          verseLinks: reader.isBible, notedVerses: reader.notedVerses)
+                          verseLinks: reader.pub.isStudyBible, notedVerses: reader.notedVerses)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {

@@ -90,8 +90,7 @@ struct CatalogGrid: View {
         let issue: String
         let title: String
         var id: String { symbol + "_" + issue }
-        /// What gets downloaded (the Study Edition entry opens the 2013 Bible).
-        var file: String { symbol == "nwtsty" ? "nwt" : symbol }
+        var file: String { symbol }
     }
 
     let title: String
@@ -127,7 +126,7 @@ struct CatalogGrid: View {
             if let pub = library.installed(symbol: entry.file, issue: entry.issue, lang: lang) {
                 NavigationLink(value: PubRoute(pubID: pub.id)) {
                     CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption,
-                                image: entry.symbol == entry.file ? library.coverImage(pub) : nil, cover: cover,
+                                image: pub.isStudyBible ? nil : library.coverImage(pub), cover: cover,
                                 downloaded: true, downloading: false)
                 }
             } else {

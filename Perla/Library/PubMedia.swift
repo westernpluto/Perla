@@ -22,7 +22,8 @@ enum PubMedia {
         var c = URLComponents(string: "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS")!
         var items = [
             URLQueryItem(name: "output", value: "json"),
-            URLQueryItem(name: "pub", value: symbol),
+            // The Study Edition is read from the 2013 Bible's EPUB (jw.org has no EPUB of it).
+            URLQueryItem(name: "pub", value: symbol == "nwtsty" ? "nwt" : symbol),
             URLQueryItem(name: "fileformat", value: "EPUB"),
             URLQueryItem(name: "alllangs", value: "0"),
             URLQueryItem(name: "langwritten", value: lang),

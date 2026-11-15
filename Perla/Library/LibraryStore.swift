@@ -14,6 +14,9 @@ struct InstalledPub: Codable, Hashable, Identifiable {
     var added: Date
 
     var isBible: Bool { symbol.hasPrefix("nwt") }
+    /// The Study Edition: the 2013 Bible with study notes beside it. Installed separately from the
+    /// regular Bible, so each can be downloaded and removed on its own.
+    var isStudyBible: Bool { symbol == "nwtsty" }
     var isMeetingPub: Bool { symbol == "mwb" || symbol == "w" }
     var subtitle: String {
         let l = PubLanguage.find(lang).name
@@ -62,6 +65,11 @@ final class LibraryStore: ObservableObject {
         return pubs.first { $0.id == id }
     }
 
+    /// The Bible to open for a reference: the Study Edition if it's here, otherwise the regular one.
+    func bible(lang: String) -> InstalledPub? {
+        installed(symbol: "nwtsty", issue: "", lang: lang) ?? installed(symbol: "nwt", issue: "", lang: lang)
+    }
+
     func isDownloading(symbol: String, issue: String, lang: String) -> Bool {
         downloading.contains(InstalledPub.makeID(symbol: symbol, issue: issue, lang: lang))
     }
@@ -106,7 +114,10 @@ final class LibraryStore: ObservableObject {
             progress[id] = nil
         }
         do {
-            let pub = try await task.value
+            var pub = try await task.value
+            if pub.isStudyBible {
+                pub.title = CatalogNames.name(symbol: "nwtsty", lang: lang) ?? L("New World Translation (Study Edition)")
+            }
             pubs.removeAll { $0.id == pub.id }
             pubs.append(pub)
             sortPubs()

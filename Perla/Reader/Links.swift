@@ -411,7 +411,8 @@ enum PubResolver {
         if let docID = ref.docID, let found = installedDocument(docID) { return .reader(found) }
 
         if let book = ref.bibleBook {
-            let pub = try await library.ensure(symbol: "nwt", lang: ref.lang)
+            // Whichever Bible is here (the Study Edition first); otherwise download the Study Edition.
+            let pub = try await library.bible(lang: ref.lang) ?? library.ensure(symbol: "nwtsty", lang: ref.lang)
             let root = library.folder(pub)
             guard let index = await BibleIndex.prepare(pub: pub, root: root) else { return .contents(PubRoute(pubID: pub.id)) }
             BibleNames.register(index)

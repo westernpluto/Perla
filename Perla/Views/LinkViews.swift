@@ -45,7 +45,7 @@ struct PubRefDestination: View {
             downloadCard
         } else {
             VStack(spacing: 14) {
-                if let fraction = library.progress(symbol: ref.isBible ? "nwt" : ref.symbol, issue: ref.issue, lang: ref.lang) {
+                if let fraction = library.progress(symbol: ref.isBible ? "nwtsty" : ref.symbol, issue: ref.issue, lang: ref.lang) {
                     ProgressView(value: fraction)
                         .progressViewStyle(.linear)
                         .frame(maxWidth: 260)
@@ -66,7 +66,7 @@ struct PubRefDestination: View {
     }
 
     private var needsDownload: Bool {
-        if ref.isBible { return library.installed(symbol: "nwt", issue: "", lang: ref.lang) == nil }
+        if ref.isBible { return library.bible(lang: ref.lang) == nil }
         if ref.symbol.isEmpty { return false }
         return library.installed(symbol: ref.symbol, issue: ref.issue, lang: ref.lang) == nil
     }

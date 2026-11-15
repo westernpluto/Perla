@@ -136,3 +136,6 @@
 "Couldn't open this publication (%@)." = "No se pudo abrir esta publicación (%@).";
 "Bad address." = "Dirección no válida.";
 "%lld results" = "%lld resultados";
+"New World Translation (Study Edition)" = "Traducción del Nuevo Mundo (edición de estudio)";
+"Download Study Edition" = "Descargar la edición de estudio";
+"Download without study notes" = "Descargar sin notas de estudio";
