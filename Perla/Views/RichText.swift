@@ -100,13 +100,17 @@ extension NSAttributedString.Key {
 
 /// iOS's text view, copying clean text: no note marks (*) or indent characters, single spaces.
 final class PerlaTextView: UITextView {
-    static func clean(_ text: NSAttributedString, range: NSRange) -> String {
+    /// Copy as one line: Bible passages run on, without the paragraph and poetry line breaks.
+    var joinsLines = false
+
+    static func clean(_ text: NSAttributedString, range: NSRange, joinLines: Bool = false) -> String {
         guard range.length > 0, NSMaxRange(range) <= text.length else { return "" }
         var out = ""
         text.enumerateAttribute(.perlaNoCopy, in: range) { value, r, _ in
             if value == nil { out += (text.string as NSString).substring(with: r) }
         }
-        out = out.replacingOccurrences(of: "\u{2028}", with: "\n")
+        out = out.replacingOccurrences(of: "\u{2028}", with: joinLines ? " " : "\n")
+        if joinLines { out = out.replacingOccurrences(of: "[\r\n]+", with: " ", options: .regularExpression) }
         out = out.replacingOccurrences(of: "[ \t\u{00A0}\u{2002}\u{2003}\u{2009}]+", with: " ", options: .regularExpression)
         out = out.replacingOccurrences(of: " *\n *", with: "\n", options: .regularExpression)
         out = out.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
@@ -114,7 +118,7 @@ final class PerlaTextView: UITextView {
     }
 
     override func copy(_ sender: Any?) {
-        let text = Self.clean(attributedText, range: selectedRange)
+        let text = Self.clean(attributedText, range: selectedRange, joinLines: joinsLines)
         guard !text.isEmpty else { return super.copy(sender) }
         UIPasteboard.general.string = text
     }
@@ -225,6 +229,7 @@ struct ChapterText: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PerlaTextView {
         let v = makeTextView(context.coordinator, scrolls: true)
+        v.joinsLines = true
         v.alwaysBounceVertical = true
         v.keyboardDismissMode = .interactive
         return v
