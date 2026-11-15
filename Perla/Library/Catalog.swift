@@ -116,14 +116,23 @@ enum CatalogNames {
     /// Fetches the name and cover of one publication (or issue) if they aren't known yet.
     /// Returns true if anything new came in.
     static func load(symbol: String, issue: String = "", lang: String) async -> Bool {
-        guard cover(symbol: symbol, issue: issue, lang: lang) == nil else { return false }
-        var c = URLComponents(string: "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS")!
-        var q = [URLQueryItem(name: "output", value: "json"), URLQueryItem(name: "pub", value: symbol),
-                 URLQueryItem(name: "alllangs", value: "0"), URLQueryItem(name: "langwritten", value: lang)]
-        if !issue.isEmpty { q.append(URLQueryItem(name: "issue", value: issue)) }
-        c.queryItems = q
-        guard let url = c.url, let (data, _) = try? await URLSession.shared.data(from: url),
-              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        guard cover(symbol: symbol, issue: issue, lang: lang) == nil || name(symbol: symbol, issue: issue, lang: lang) == nil
+        else { return false }
+        // Some publications (the regular Bible) are only answered when a file format is given.
+        var obj: [String: Any]?
+        for format in [nil, "EPUB"] as [String?] where obj?["pubName"] == nil {
+            var c = URLComponents(string: "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS")!
+            var q = [URLQueryItem(name: "output", value: "json"), URLQueryItem(name: "pub", value: symbol),
+                     URLQueryItem(name: "alllangs", value: "0"), URLQueryItem(name: "langwritten", value: lang)]
+            if !issue.isEmpty { q.append(URLQueryItem(name: "issue", value: issue)) }
+            if let format { q.append(URLQueryItem(name: "fileformat", value: format)) }
+            c.queryItems = q
+            if let url = c.url, let (data, _) = try? await URLSession.shared.data(from: url),
+               let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], o["pubName"] != nil {
+                obj = o
+            }
+        }
+        guard let obj else { return false }
         let key = id(symbol, issue, lang)
         var changed = false
         if let raw = obj["pubName"] as? String, !raw.isEmpty {

@@ -61,17 +61,17 @@ struct LibrarySectionDestination: View {
         case .catalog(let category):
             CatalogGrid(title: category.title,
                         entries: CatalogItem.items(in: category).map { .init(symbol: $0.symbol, issue: "", title: $0.title) },
-                        names: true)
+                        names: true, glyph: category.icon)
         case .workbooks:
             CatalogGrid(title: L("Meeting Workbooks"),
                         entries: Issues.workbookIssues().map {
                             .init(symbol: "mwb", issue: $0, title: Issues.label(symbol: "mwb", issue: $0))
-                        })
+                        }, glyph: "calendar")
         case .watchtower:
             CatalogGrid(title: L("The Watchtower"),
                         entries: Issues.watchtowerIssues().map {
                             .init(symbol: "w", issue: $0, title: Issues.label(symbol: "w", issue: $0))
-                        })
+                        }, glyph: "text.book.closed")
         case .downloaded:
             DownloadedView()
         case .bySymbol:
@@ -97,6 +97,8 @@ struct CatalogGrid: View {
     let entries: [Entry]
     /// Show each publication's name in the publication language (fetched from jw.org).
     var names = false
+    /// The section's symbol, shown on tiles that have no cover.
+    var glyph = "book.closed"
     @State private var namesVersion = 0
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(Prefs.Key.lang) private var lang = "E"
@@ -125,13 +127,13 @@ struct CatalogGrid: View {
         Group {
             if let pub = library.installed(symbol: entry.file, issue: entry.issue, lang: lang) {
                 NavigationLink(value: PubRoute(pubID: pub.id)) {
-                    CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption,
+                    CatalogTile(title: entry.symbol == entry.file ? pub.title : name, caption: caption, glyph: glyph,
                                 image: pub.isStudyBible && cover != nil ? nil : library.coverImage(pub), cover: cover,
                                 downloaded: true, downloading: false)
                 }
             } else {
                 NavigationLink(value: PubRef(symbol: entry.file, issue: entry.issue, lang: lang, label: name)) {
-                    CatalogTile(title: name, caption: caption, image: nil, cover: cover, downloaded: false,
+                    CatalogTile(title: name, caption: caption, glyph: glyph, image: nil, cover: cover, downloaded: false,
                                 downloading: library.isDownloading(symbol: entry.file, issue: entry.issue, lang: lang),
                                 progress: library.progress(symbol: entry.file, issue: entry.issue, lang: lang))
                 }
@@ -179,6 +181,8 @@ struct CatalogTile: View {
     let title: String
     /// Shown under the tile instead of the title (issue dates).
     let caption: String?
+    /// The section's symbol, for publications without a cover.
+    var glyph = "book.closed"
     let image: UIImage?
     var cover: URL? = nil
     let downloaded: Bool
@@ -231,11 +235,10 @@ struct CatalogTile: View {
     }
 
     private var placeholder: some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .padding(10)
+        Image(systemName: glyph)
+            .font(.system(size: 34, weight: .light))
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 }
 
@@ -259,7 +262,8 @@ struct DownloadedView: View {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
                             ForEach(group.pubs) { pub in
                                 NavigationLink(value: PubRoute(pubID: pub.id)) {
-                                    CatalogTile(title: pub.title, caption: nil, image: library.coverImage(pub),
+                                    CatalogTile(title: pub.title, caption: nil, glyph: DownloadedView.glyph(pub),
+                                                image: library.coverImage(pub),
                                                 downloaded: true, downloading: false)
                                 }
                                 .buttonStyle(.plain)
@@ -282,6 +286,16 @@ struct DownloadedView: View {
             get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }
         ), presenting: confirmDelete) { pub in
             Button("Remove \(pub.title)", role: .destructive) { library.delete(pub) }
+        }
+    }
+
+    static func glyph(_ pub: InstalledPub) -> String {
+        if pub.isBible { return "book.closed" }
+        switch pub.symbol {
+        case "mwb": return "calendar"
+        case "w": return "text.book.closed"
+        default:
+            return CatalogItem.all.first { $0.symbol == pub.symbol }?.category.icon ?? "books.vertical"
         }
     }
 
